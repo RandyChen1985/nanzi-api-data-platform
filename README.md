@@ -30,6 +30,8 @@
 
 ## 🌟 核心能力 (Core Capabilities)
 
+![云枢 · 数据服务平台核心能力](docs/images/features.png)
+
 ### 1. 🚀 动态资源服务化 (Resource-as-an-API)
 
 *   **双模式引擎**：`TABLE` 模式直接映射物理表；`SQL` 模式封装复杂查询逻辑。

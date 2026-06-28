@@ -30,6 +30,8 @@ The platform focuses on the following core capability matrix:
 
 ## 🌟 Core Capabilities
 
+![Yunshu API Data Platform Core Capabilities](docs/images/features.png)
+
 ### 1. 🚀 Resource-as-an-API
 
 *   **Dual-mode engine**: `TABLE` mode maps physical tables directly; `SQL` mode encapsulates complex query logic.
