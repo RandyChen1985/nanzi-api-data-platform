@@ -287,7 +287,7 @@ Issues and Pull Requests are welcome.
 
 ## 💬 Contact & Community
 
-- **Issues**: Report bugs and feature requests on GitHub / GitLab Issues (public repo URL coming soon).
+- **Issues**: Report bugs and feature requests on [GitHub Issues](https://github.com/RandyChen1985/yunshu-api-data-platform/issues).
 - **Email**: Reach us via Issue comments.
 
 If you have any questions, feature suggestions, or need further technical updates, please scan the QR code to follow our WeChat Official Account:

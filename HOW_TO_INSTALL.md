@@ -105,7 +105,7 @@
 
     *   **途径一：直接下载官方预编译镜像包（推荐，最便捷）**
 
-        前往 GitHub Releases 页面，下载对应版本及适合服务器 CPU 架构（如 `linux-amd64` / `linux-arm64`）的离线 Docker 镜像 tar 包。（开源仓库地址即将公布）
+        前往 [GitHub Releases](https://github.com/RandyChen1985/yunshu-api-data-platform/releases) 页面，下载对应版本及适合服务器 CPU 架构（如 `linux-amd64` / `linux-arm64`）的离线 Docker 镜像 tar 包。
 
     *   **途径二：本地自行编译并导出镜像包（适合二次开发与定制）**
 

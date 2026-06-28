@@ -286,7 +286,7 @@ cd frontend && npm run dev
 
 ## 💬 联系与交流
 
-- **Issue**：欢迎在 GitHub / GitLab Issues 中反馈问题与功能建议（开源仓库地址即将公布）。
+- **Issue**：欢迎在 [GitHub Issues](https://github.com/RandyChen1985/yunshu-api-data-platform/issues) 中反馈问题与功能建议。
 - **邮件**：可通过 Issue 留言与我们取得联系。
 
 如果您在使用过程中有任何疑问、功能建议，或者想要获取更多技术资讯，欢迎扫码关注我们的微信公众号：
