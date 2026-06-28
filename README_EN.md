@@ -28,6 +28,18 @@ The platform focuses on the following core capability matrix:
 
 ---
 
+## 🖼️ Interface Snapshots
+
+| 🔐 Login | 📊 Observability Dashboard |
+| :---: | :---: |
+| ![Login](docs/images/login.png) | ![Dashboard Overview](docs/images/dashboard.png) |
+| **🚀 API Resource Management** | **🧪 SQL Lab** |
+| ![Resource Management](docs/images/resource.png) | ![SQL Lab](docs/images/sqllab.png) |
+| **🛡️ RBAC & Roles** | **📋 Full-Chain Audit Logs** |
+| ![RBAC](docs/images/rbac.png) | ![Audit Logs](docs/images/audit.png) |
+
+---
+
 ## 🌟 Core Capabilities
 
 ![Yunshu API Data Platform Core Capabilities](docs/images/features.png)

@@ -28,6 +28,18 @@
 
 ---
 
+## 🖼️ 界面预览 (Interface Snapshots)
+
+| 🔐 统一登录入口 (Login) | 📊 可观测性看板 (Dashboard) |
+| :---: | :---: |
+| ![登录页](docs/images/login.png) | ![仪表盘概览](docs/images/dashboard.png) |
+| **🚀 API 资源管理 (Resource Management)** | **🧪 SQL 实验室 (SQL Lab)** |
+| ![API 资源管理](docs/images/resource.png) | ![SQL 实验室](docs/images/sqllab.png) |
+| **🛡️ 权限与角色 (RBAC)** | **📋 全链路审计 (Audit Logs)** |
+| ![权限与角色](docs/images/rbac.png) | ![审计日志](docs/images/audit.png) |
+
+---
+
 ## 🌟 核心能力 (Core Capabilities)
 
 ![云枢 · 数据服务平台核心能力](docs/images/features.png)
