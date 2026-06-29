@@ -6,6 +6,7 @@ import { buildPlaygroundRoute } from '@/utils/playground'
 import { useToast } from '@/composables/useToast'
 import { useSimpleVirtualList } from '@/composables/useSimpleVirtualList'
 import CatalogProductRow from '@/components/catalog/CatalogProductRow.vue'
+import CatalogFeaturedCard from '@/components/catalog/CatalogFeaturedCard.vue'
 
 const { showToast } = useToast()
 const PRODUCT_ITEM_HEIGHT = 136
@@ -355,34 +356,17 @@ onMounted(async () => {
     <!-- Featured sections -->
     <div v-if="showSections && !loading" class="space-y-6">
       <div v-if="sections.featured.length">
-        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">⭐ 精选推荐</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div
+        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">精选推荐</h2>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <CatalogFeaturedCard
             v-for="p in sections.featured.slice(0, 3)"
             :key="p.product_key"
-            class="bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 rounded-xl p-4 hover:shadow-md transition-shadow"
-          >
-            <div class="flex items-start justify-between cursor-pointer" @click="openDetail(p.product_key)">
-              <h3 class="font-bold text-gray-900">{{ p.display_name }}</h3>
-              <span v-if="p.has_access" class="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">已授权</span>
-            </div>
-            <p class="text-xs text-gray-500 mt-2 line-clamp-2 cursor-pointer" @click="openDetail(p.product_key)">{{ p.summary }}</p>
-            <div class="mt-3 flex items-center justify-between">
-              <div class="flex items-center gap-2 text-[10px] text-gray-400">
-                <span>{{ p.domain }}</span>
-                <span>·</span>
-                <span>{{ formatCalls(p.calls_7d) }} 次/周</span>
-              </div>
-              <router-link
-                v-if="p.has_access && playgroundRoute(p)"
-                :to="playgroundRoute(p)!"
-                class="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium"
-                @click.stop
-              >
-                试用 →
-              </router-link>
-            </div>
-          </div>
+            :product="p"
+            :playground-route="playgroundRoute(p)"
+            :format-calls="formatCalls(p.calls_7d)"
+            class="cursor-pointer"
+            @open="openDetail(p.product_key)"
+          />
         </div>
       </div>
     </div>
