@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import { login, ssoLogin, loginWithApiKey, getCurrentUser } from '@/api/auth'
+import api from '@/utils/axios'
 import { KeyIcon, UserIcon, GlobeAltIcon, CodeBracketIcon, ChartBarIcon, ServerIcon, ShieldCheckIcon, CpuChipIcon, CloudIcon } from '@heroicons/vue/24/outline'
 
 const router = useRouter()
@@ -13,7 +14,6 @@ const error = ref('')
 const loading = ref(false)
 
 // Reset inputs when switching tabs
-import { watch } from 'vue'
 watch(activeTab, () => {
   apiKey.value = ''
   username.value = ''
@@ -61,45 +61,33 @@ const handleLogin = async () => {
   loading.value = true
   
   try {
-    const payload: any = {}
-    let endpoint = '/api/portal/auth/login'
-    
+    let result
     if (activeTab.value === 'apikey') {
-      payload.api_key = apiKey.value
+      result = await loginWithApiKey(apiKey.value)
     } else if (activeTab.value === 'sso') {
-      payload.username = username.value
-      payload.password = password.value
-      endpoint = '/api/portal/auth/sso/login'
+      result = await ssoLogin({ username: username.value, password: password.value })
     } else {
-      payload.username = username.value
-      payload.password = password.value
+      result = await login({ username: username.value, password: password.value })
     }
 
-    const response = await axios.post(endpoint, payload)
-    
-    if (response.data && response.data.status === 'success') {
-      const user = response.data.data
-      localStorage.setItem('api_key', user.api_key)
-      
-      // Fetch and store full user info with permissions BEFORE pushing to dashboard
+    if (result && result.status === 'success') {
+      const user = result.data
+      localStorage.setItem('api_key', user.api_key ?? '')
+
       try {
-        const authRes = await axios.get('/api/portal/auth/me', {
-          headers: { 'X-API-Key': user.api_key }
-        })
-        const permRes = await axios.get('/api/portal/auth/permissions', {
-          headers: { 'X-API-Key': user.api_key }
-        })
-        
+        const authRes = await getCurrentUser()
+        const permRes = await api.get('/api/portal/auth/permissions')
         const fullUserInfo = {
-          ...authRes.data.data,
-          permissions: permRes.data.permissions
+          ...authRes.data,
+          permissions: permRes.data.permissions,
         }
         localStorage.setItem('user_info', JSON.stringify(fullUserInfo))
       } catch (e) {
         console.error('Failed to pre-fetch permissions', e)
       }
 
-      showToast('SSO 登录成功', 'success')
+      const toastMsg = activeTab.value === 'sso' ? 'SSO 登录成功' : '登录成功'
+      showToast(toastMsg, 'success')
       router.push('/dashboard')
     }
   } catch (e: any) {

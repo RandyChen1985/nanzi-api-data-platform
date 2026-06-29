@@ -1,43 +1,36 @@
 version: "3.8"
 
+# 生产/预发：API + Redis，不挂载源码
 services:
   api:
     image: yunshu-api:latest
     container_name: yunshu-api
     ports:
       - "8000:8000"
-    volumes:
-      - ./:/app
-      # 请将下面的 /path/to/your/oracle/instantclient 替换为您宿主机上实际的 Oracle 客户端路径
-      - /path/to/your/oracle/instantclient:/opt/oracle/instantclient
+    env_file:
+      - .env
     environment:
-      # Service Config
-      - API_SERVICE_ENV=${API_SERVICE_ENV:-dev}
-      - API_SERVICE_LOG_LEVEL=${API_SERVICE_LOG_LEVEL:-INFO}
-      # Oracle Config
+      - API_SERVICE_ENV=${API_SERVICE_ENV:-prod}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENABLE_SCHEDULER=${ENABLE_SCHEDULER:-1}
+      - WEB_CONCURRENCY=${WEB_CONCURRENCY:-4}
+      - USE_ORACLE_THICK_MODE=${USE_ORACLE_THICK_MODE:-1}
       - LD_LIBRARY_PATH=/opt/oracle/instantclient
-      - USE_ORACLE_THICK_MODE=${USE_ORACLE_THICK_MODE:-1} # Set to 1 to enable Thick Mode
-
-      # MySQL (Mock / External)
-      - MYSQL_HOST=${MYSQL_HOST:-mysql} # 假设有名为 mysql 的服务或外部注入
+      - MYSQL_HOST=${MYSQL_HOST:-host.docker.internal}
       - MYSQL_PORT=${MYSQL_PORT:-3306}
       - MYSQL_DB=${MYSQL_DB:-yunshu_api_data_platform}
       - MYSQL_USER=${MYSQL_USER:-root}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-root123}
-
-      # Redis (Internal Service)
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-root123}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - REDIS_ENABLE=${REDIS_ENABLE:-true}
-
-      # Security
-      - API_SERVICE_API_KEY_HASH_ALGORITHM=${API_SERVICE_API_KEY_HASH_ALGORITHM:-sha256}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    volumes:
+      - /app/yunshu-api/lib/instantclient_19_30:/opt/oracle/instantclient
     depends_on:
       - redis
-
     restart: unless-stopped
 
   redis:

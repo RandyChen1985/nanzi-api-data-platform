@@ -37,3 +37,6 @@ echo "⏳ Step 5: Waiting for service to start..."
 sleep 5
 echo "📜 Startup Logs:"
 cat app.log
+echo ""
+echo "📡 Following logs (Ctrl+C to stop tail, service keeps running)..."
+tail -f app.log

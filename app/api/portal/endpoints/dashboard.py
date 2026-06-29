@@ -8,11 +8,13 @@ from app.core.redis import get_redis
 from datetime import datetime, timedelta
 from typing import Optional, List
 import json
+import logging
 from app.services.meta_service import MetaService
 from app.schemas.resource import ResourceResponse
 from app.utils.sharding import get_audit_table_name
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def is_admin(user: dict) -> bool:
@@ -42,7 +44,7 @@ async def get_admin_stats(
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Redis read error: {e}")
+            logger.warning("Redis read error: %s", e)
     # -------------------
     
     async with get_db_connection() as conn:
@@ -143,7 +145,7 @@ async def get_user_stats(
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Redis read error: {e}")
+            logger.warning("Redis read error: %s", e)
     # -------------------
 
     async with get_db_connection() as conn:
@@ -202,7 +204,7 @@ async def get_user_stats(
                 try:
                     await redis.setex(cache_key, 300, json.dumps(result, default=str))
                 except Exception as e:
-                    print(f"Redis write error: {e}")
+                    logger.warning("Redis write error: %s", e)
             # -------------------
 
             return result
@@ -231,7 +233,7 @@ async def get_api_trends(
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Redis read error: {e}")
+            logger.warning("Redis read error: %s", e)
     # -------------------
 
     start_date = (datetime.now() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -291,7 +293,7 @@ async def get_api_trends(
                 try:
                     await redis.setex(cache_key, 300, json.dumps(trends, default=str))
                 except Exception as e:
-                    print(f"Redis write error: {e}")
+                    logger.warning("Redis write error: %s", e)
             # -------------------
 
             return trends
@@ -319,7 +321,7 @@ async def get_api_trends_24h(
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Redis read error: {e}")
+            logger.warning("Redis read error: %s", e)
     # -------------------
     
     # Calculate start time (24 hours ago, rounded down to the hour)
@@ -386,7 +388,7 @@ async def get_api_trends_24h(
                 try:
                     await redis_conn.setex(cache_key, 300, json.dumps(trends, default=str))
                 except Exception as e:
-                    print(f"Redis write error: {e}")
+                    logger.warning("Redis write error: %s", e)
             # -------------------
 
             return trends
@@ -571,7 +573,7 @@ async def get_resource_stats(
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Redis read error: {e}")
+            logger.warning("Redis read error: %s", e)
     # -------------------
 
     # Determine time range
@@ -639,7 +641,7 @@ async def get_resource_stats(
                 try:
                     await redis.setex(cache_key, 120, json.dumps(results, default=str))
                 except Exception as e:
-                    print(f"Redis write error: {e}")
+                    logger.warning("Redis write error: %s", e)
             # -------------------
 
             return results
@@ -668,7 +670,7 @@ async def get_user_ranking(
             if cached_data:
                 return json.loads(cached_data)
         except Exception as e:
-            print(f"Redis read error: {e}")
+            logger.warning("Redis read error: %s", e)
     # -------------------
 
     # Determine time range
@@ -713,7 +715,7 @@ async def get_user_ranking(
                 try:
                     await redis.setex(cache_key, 120, json.dumps(results, default=str))
                 except Exception as e:
-                    print(f"Redis write error: {e}")
+                    logger.warning("Redis write error: %s", e)
             # -------------------
 
             return results
@@ -783,7 +785,7 @@ async def get_online_users(
             "users": users_details
         }
     except Exception as e:
-        print(f"Redis error in get_online_users: {e}")
+        logger.warning("Redis error in get_online_users: %s", e)
         return {"count": 0, "users": []}
 
 

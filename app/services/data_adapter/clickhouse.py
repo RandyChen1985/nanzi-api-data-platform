@@ -7,21 +7,13 @@ import logging
 from app.schemas.resource import ResourceResponse
 from jinja2 import Environment, BaseLoader, meta
 from functools import lru_cache
+from app.utils.jinja_sql import SQL_LAB_ENV
 
 logger = logging.getLogger(__name__)
 
 # Global Jinja2 Environment with built-in cache
 _JINJA_ENV = Environment(loader=BaseLoader(), autoescape=False, cache_size=512)
-
-# SQL Lab Env (handles NULLs gracefully for column fetching)
-from jinja2 import Undefined
-class SqlLabUndefined(Undefined):
-    def __str__(self): return "NULL"
-    def __html__(self): return "NULL"
-    def __iter__(self): return iter([])
-    def __bool__(self): return False
-
-_SQL_LAB_ENV = Environment(loader=BaseLoader(), undefined=SqlLabUndefined)
+_SQL_LAB_ENV = SQL_LAB_ENV
 
 @lru_cache(maxsize=512)
 def _parse_template(sql_template: str) -> Tuple[Any, Set[str]]:

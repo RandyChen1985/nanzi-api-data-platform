@@ -82,52 +82,7 @@ DATABASE SCHEMA CONTEXT:
 输出格式要求：必须仅返回 JSON 列表，格式为 [{{ "title": "场景标题", "description": "场景详细业务描述", "sql": "SQL代码" }}]。不要包含 Markdown 标记或任何前导文字。
 """
 
-def _extract_table_names(sql: str) -> List[str]:
-    """
-    使用 sqlparse 提取 SQL 中的所有物理表名。
-    自动处理 CTE (WITH 语句) 并跳过别名。
-    (Copy from sql_execution.py for now)
-    """
-    tables = set()
-    try:
-        formatted_sql = sqlparse.format(sql, strip_comments=True).strip()
-        parsed = sqlparse.parse(formatted_sql)
-        ctes = set()
-        
-        def walk_tokens(tokens):
-            from_seen = False
-            for token in tokens:
-                if token.is_group:
-                    walk_tokens(token.tokens)
-                if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in ("FROM", "JOIN"):
-                    from_seen = True
-                    continue
-                if from_seen and isinstance(token, sqlparse.sql.Identifier):
-                    table_name = token.get_real_name()
-                    if table_name: tables.add(table_name.lower())
-                    from_seen = False 
-                elif from_seen and token.ttype is sqlparse.tokens.Name:
-                    tables.add(token.value.lower())
-                    from_seen = False
-
-        for statement in parsed:
-            # Simple CTE extraction
-            for token in statement.tokens:
-                if token.value.upper() == 'WITH':
-                    idx = statement.token_index(token) + 1
-                    while idx < len(statement.tokens):
-                        t = statement.tokens[idx]
-                        if isinstance(t, sqlparse.sql.Identifier): ctes.add(t.get_real_name().lower())
-                        elif t.value == '(': break
-                        idx += 1
-            walk_tokens(statement.tokens)
-        
-        return list(tables - ctes)
-    except Exception as e:
-        logger.warning(f"Failed to extract table names: {e}")
-        return []
-
-# --- Endpoints ---
+from app.utils.sql_parser import extract_table_names
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Request, BackgroundTasks # 确保 Request 和 BackgroundTasks 被导入
 from fastapi.responses import StreamingResponse
@@ -174,7 +129,7 @@ async def preview_sql(
                 raise HTTPException(status_code=403, detail=f"Permission Denied: No tables authorized for data source '{ds_name}'")
                 
             # Extract tables from SQL
-            tables = _extract_table_names(request.sql)
+            tables = extract_table_names(request.sql)
             for t in tables:
                 if t not in allowed_tables:
                     # Check prefix match (db.table)

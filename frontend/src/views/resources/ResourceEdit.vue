@@ -469,7 +469,16 @@ const handleReady = (payload: any) => {
                         <svg class="w-4 h-4 ml-1 text-gray-400 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     </span>
                 </label>
-                <input v-model="form.resource_group" :disabled="!hasPerm('element:resource:edit')" list="group-suggestions" type="text" placeholder="例如：云枢, 动环" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm disabled:bg-gray-50" />
+                <input
+                  v-model="form.resource_group"
+                  :disabled="!hasPerm('element:resource:edit')"
+                  list="group-suggestions"
+                  type="text"
+                  placeholder="从列表选择或输入新分组（建议英文/下划线）"
+                  class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm disabled:bg-gray-50"
+                  @blur="form.resource_group = (form.resource_group || '').trim()"
+                />
+                <p class="mt-1 text-xs text-gray-400">请优先从已有分组中选择，避免「SQL-LAB」与「SQL_LAB」等重复分组。</p>
                 <datalist id="group-suggestions">
                     <option v-for="g in existingGroups" :key="g" :value="g"></option>
                 </datalist>

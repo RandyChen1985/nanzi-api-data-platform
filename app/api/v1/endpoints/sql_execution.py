@@ -68,133 +68,7 @@ async def _verify_permission(user: Dict = Depends(require_api_key)):
     user["permissions"] = user_perms.permissions
     return user
 
-def _extract_table_names(sql: str) -> List[str]:
-    """
-    使用 sqlparse 提取 SQL 中的所有物理表名。
-    自动处理 CTE (WITH 语句) 并跳过别名。
-    """
-    tables = set()
-    try:
-        formatted_sql = sqlparse.format(sql, strip_comments=True).strip()
-        parsed = sqlparse.parse(formatted_sql)
-        
-        # 记录 CTE 定义的临时表名，不应计入物理表权限校验
-        ctes = set()
-        
-        for statement in parsed:
-            # 1. 识别 CTEs
-            for token in statement.tokens:
-                if isinstance(token, sqlparse.sql.IdentifierList):
-                    for identifier in token.get_identifiers():
-                        # 这里比较复杂，简化处理：通常 WITH 后面跟着 identifier
-                        pass
-                
-                # 简单处理常见的 WITH 语法
-                if token.value.upper() == 'WITH':
-                    # 寻找后续的 Identifier
-                    idx = statement.token_index(token) + 1
-                    while idx < len(statement.tokens):
-                        t = statement.tokens[idx]
-                        if isinstance(t, sqlparse.sql.Identifier):
-                            ctes.add(t.get_real_name().lower())
-                        elif t.value == '(': # 开始子查询
-                            break
-                        idx += 1
-
-            # 2. 识别所有的表引用 (Identifiers)
-            # 我们通过寻找跟随在 FROM, JOIN 之后的标识符来定位表名
-            from_seen = False
-            for token in statement.flatten():
-                if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in ("FROM", "JOIN"):
-                    from_seen = True
-                    continue
-                
-                if from_seen:
-                    if token.ttype is sqlparse.tokens.Name or token.ttype is sqlparse.tokens.Keyword:
-                        # 这是一个可能的表名。由于 Flatten 过了，我们需要向上找 Identifier
-                        # 或者在这里简单处理：Identifier 包含表名
-                        pass
-            
-            # 改进提取：遍历 Identifier
-            for token in statement.tokens:
-                if isinstance(token, sqlparse.sql.Identifier):
-                    # 如果 Identifier 在 FROM/JOIN 之后，则可能是表
-                    # 也可以递归遍历树
-                    pass
-
-        # 使用更稳健的解析方法（非 Flatten）
-        def walk_tokens(tokens):
-            from_seen = False
-            for token in tokens:
-                if token.is_group:
-                    walk_tokens(token.tokens)
-                
-                if token.ttype is sqlparse.tokens.Keyword and token.value.upper() in ("FROM", "JOIN"):
-                    from_seen = True
-                    continue
-                
-                if from_seen and isinstance(token, sqlparse.sql.Identifier):
-                    table_name = token.get_real_name()
-                    if table_name:
-                        tables.add(table_name.lower())
-                    from_seen = False # 消费完一个
-                elif from_seen and token.ttype is sqlparse.tokens.Name:
-                    tables.add(token.value.lower())
-                    from_seen = False
-
-        walk_tokens(parsed[0].tokens)
-        
-        # 过滤掉 CTE 定义的临时表
-        return list(tables - ctes)
-        
-    except Exception as e:
-        logger.warning(f"Failed to extract table names: {e}")
-        return []
-
-def _is_safe_sql(sql: str) -> bool:
-    """
-    Validate if SQL is safe using sqlparse.
-    Allow: SELECT, EXPLAIN, DESCRIBE, SHOW, WITH
-    Block: INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, etc.
-    """
-    try:
-        # Strip comments and parse
-        formatted_sql = sqlparse.format(sql, strip_comments=True).strip()
-        parsed = sqlparse.parse(formatted_sql)
-        
-        if not parsed:
-            return False
-            
-        allowed_types = {"SELECT", "UNKNOWN"} # UNKNOWN covers many SHOW/DESCRIBE/WITH cases in sqlparse
-        
-        for statement in parsed:
-            stmt_type = statement.get_type()
-            
-            # 1. Strict Deny List (Mutating operations)
-            if stmt_type in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"):
-                return False
-                
-            # 2. Deep Check for tokens to allow EXPLAIN/SHOW/DESCRIBE which might be UNKNOWN
-            first_token = statement.token_first(skip_cm=True, skip_ws=True)
-            if not first_token:
-                continue
-                
-            keyword = first_token.value.upper()
-            if keyword in ("SELECT", "WITH", "EXPLAIN", "DESCRIBE", "DESC", "SHOW"):
-                continue
-                
-            # If strictly SELECT check is wanted, we could be adhering more strict.
-            # But "SELECT" type is usually enough for data retrieval.
-            if stmt_type == "SELECT":
-                continue
-
-            # Fallback: if not explicitly allowed, deny
-            return False
-            
-        return True
-    except Exception as e:
-        logger.error(f"SQL Parse Error: {e}")
-        return False
+from app.utils.sql_parser import extract_table_names
 
 def _enforce_limit(sql: str, source_type: str = "mysql") -> str:
     """
@@ -346,7 +220,7 @@ async def execute_sql(
 
             # B. 校验数据表权限
             # 策略：空=拒绝, ALL(*)=全通, 具体的=白名单
-            tables = _extract_table_names(request.sql)
+            tables = extract_table_names(request.sql)
             
             # 检查是否有显式全通权限 ds:name:table:*
             all_tables_key = f"ds:{ds_name}:table:*"

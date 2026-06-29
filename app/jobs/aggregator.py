@@ -205,17 +205,5 @@ async def run_history_aggregation(days: int = 7, operator: str = "SYSTEM"):
                             (str(e), task_id)
                         )
                         await conn.commit()
-            except: pass
-
-    except Exception as e:
-        logger.error(f"Error in run_history_aggregation: {e}")
-        if task_id > 0:
-            try:
-                async with get_db_connection() as conn:
-                    async with conn.cursor() as cursor:
-                        await cursor.execute(
-                            "UPDATE sys_maintenance_log SET status = 'FAILED', error_message = %s WHERE id = %s",
-                            (str(e), task_id)
-                        )
-                        await conn.commit()
-            except: pass
+            except Exception as inner_e:
+                logger.error(f"Failed to record failure status: {inner_e}")

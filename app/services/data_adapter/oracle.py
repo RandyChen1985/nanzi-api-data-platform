@@ -11,22 +11,14 @@ except ImportError:
     oracledb = None
 
 import re
-from jinja2 import Environment, BaseLoader, meta, Undefined, DebugUndefined
+from jinja2 import Environment, BaseLoader, meta, StrictUndefined
+from app.utils.jinja_sql import SQL_LAB_ENV
 from .base import SQLSafetyError
 
 logger = logging.getLogger(__name__)
 
-# --- Jinja2 Environment Optimization ---
-from jinja2 import StrictUndefined
 TEMPLATE_ENV = Environment(loader=BaseLoader(), undefined=StrictUndefined)
-
-class SqlLabUndefined(Undefined):
-    def __str__(self): return "NULL"
-    def __html__(self): return "NULL"
-    def __iter__(self): return iter([])
-    def __bool__(self): return False
-
-SQL_LAB_ENV = Environment(loader=BaseLoader(), undefined=SqlLabUndefined)
+SQL_LAB_ENV = SQL_LAB_ENV
 
 class OracleAdapter(DataSourceAdapter):
     """Oracle Adapter supporting both Thin (Async) and Thick (Sync) modes with Oracle 11g compatibility"""

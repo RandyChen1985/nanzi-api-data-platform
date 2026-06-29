@@ -1,0 +1,346 @@
+<!--
+  微信公众号排版 HTML — 云枢数据服务平台 v1.0.0
+  使用说明：
+  1. 复制下方 <section> 内全部内容，粘贴到微信公众平台编辑器「HTML」模式（或 135/秀米 等工具）
+  2. 封面图 image.png 及界面截屏需在编辑器中重新上传并替换下方占位图 src
+  3. 外链在发布前预览确认；部分链接需绑定公众号域名白名单
+  4. 不支持 <style>、<script>、class/id 选择器，全部采用内联 style；避免 flex/grid，使用 section + p 块级卡片布局
+-->
+
+<section style="box-sizing:border-box;font-size:16px;color:#3f3f3f;line-height:1.8;letter-spacing:0.5px;text-align:justify;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Hiragino Sans GB','Microsoft YaHei',Arial,sans-serif;">
+
+  <!-- 标题区 -->
+  <section style="margin:0 0 24px 0;padding:20px 16px;background:linear-gradient(135deg,#0c1a2e 0%,#0f2744 48%,#1e40af 100%);border-radius:10px;text-align:center;box-shadow:0 4px 20px rgba(37,99,235,0.15);">
+    <p style="margin:0 0 8px 0;font-size:22px;font-weight:bold;color:#f8fafc;line-height:1.5;letter-spacing:1px;">🚀 云枢数据服务平台 · v1.0.0 正式发布</p>
+    <p style="margin:0;font-size:16px;font-weight:normal;color:#93c5fd;line-height:1.6;letter-spacing:0.5px;">Data API · 元数据治理 · SQL 实验室 · 企业级审计</p>
+  </section>
+
+  <!-- 仓库链接 -->
+  <section style="margin:0 0 20px 0;padding:12px 16px;background:#f0f7ff;border-left:4px solid #2563eb;border-radius:0 6px 6px 0;">
+    <p style="margin:0 0 8px 0;font-size:15px;color:#1e40af;line-height:1.7;">
+      <strong style="color:#1e3a8a;">GitHub Repository：</strong>
+      <a href="https://github.com/RandyChen1985/yunshu-api-data-platform" style="color:#2563eb;text-decoration:none;word-break:break-all;">RandyChen1985/yunshu-api-data-platform</a>
+    </p>
+    <p style="margin:0;font-size:14px;color:#1e40af;line-height:1.7;">
+      <strong style="color:#1e3a8a;">生态互补：</strong>
+      <a href="https://github.com/RandyChen1985/yunshu-ai-agent-platform" style="color:#2563eb;text-decoration:none;word-break:break-all;">云枢 · 智能体平台</a>（AI 对话 / Agent 编排 / ChatBI）
+    </p>
+  </section>
+
+  <!-- 导语 -->
+  <section style="margin:0 0 24px 0;">
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.9;">
+      v1.0.0 是云枢数据服务平台的<strong style="color:#1d4ed8;">首个正式开源版本</strong>，面向企业数据消费场景提供一站式 <strong>Data-as-a-Service (DaaS)</strong> 能力。平台将物理表、自定义 SQL 与语义元数据统一封装为可治理、可审计、可观测的 RESTful API，可作为<strong style="color:#1d4ed8;">云枢 · 智能体平台</strong>的标准化数据底座，为 ChatBI、AI Agent 与业务系统提供统一数据访问层。
+    </p>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;line-height:1.9;">
+      本次首发完整交付：<strong>FastAPI 核心后端</strong>、<strong>Vue 3 + TailwindCSS 管理后台</strong>、<strong>25 套数据库迁移脚本</strong>、<strong>Docker 离线部署工具链</strong>、双语 README 与 6 张功能界面截屏。
+    </p>
+    <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.8;">
+      发布范围自 <code style="font-size:13px;background:#f3f4f6;padding:2px 6px;border-radius:3px;color:#374151;">73a1324</code>（含）至
+      <code style="font-size:13px;background:#f3f4f6;padding:2px 6px;border-radius:3px;color:#374151;">43849b7</code>，共
+      <strong>10 个提交</strong>，涵盖核心后端、前端管理台、数据库迁移、Docker 离线部署与完整开源文档资产。
+    </p>
+  </section>
+
+  <!-- 封面图 -->
+  <section style="margin:0 0 28px 0;text-align:center;">
+    <img src="image.png" alt="云枢数据服务平台 v1.0.0 发布概览" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,0.08);" />
+  </section>
+
+  <!-- 能力矩阵速览 -->
+  <section style="margin:0 0 28px 0;padding:16px 14px;background:linear-gradient(135deg,#f8fafc 0%,#eff6ff 100%);border:1px solid #bfdbfe;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#1e3a8a;line-height:1.5;text-align:center;">✨ 平台能力矩阵速览</p>
+    <p style="margin:0 0 6px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;">🚀 动态资源服务化 · 🧪 SQL 实验室 · 🗂️ 元数据治理</p>
+    <p style="margin:0 0 6px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;">🛡️ RBAC 细粒度授权 · 📋 按天分表审计 · 🔐 API Key 双认证</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;">📊 全链路可观测看板 · 🔌 标准化 /api/v1 开放接口 · 🐳 Docker 离线部署</p>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== 典型数据消费流程 ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #0ea5e9;padding-left:12px;line-height:1.4;">🔄 典型数据消费流程</p>
+  </section>
+  <section style="margin:0 0 28px 0;padding:16px 14px;background-color:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;">
+    <p style="margin:0 0 10px 0;font-size:14px;color:#374151;line-height:1.85;"><span style="color:#0ea5e9;font-weight:bold;">①</span> <strong>注册数据源</strong>：在管理后台配置 MySQL / ClickHouse / Oracle 连接。</p>
+    <p style="margin:0 0 10px 0;font-size:14px;color:#374151;line-height:1.85;"><span style="color:#0ea5e9;font-weight:bold;">②</span> <strong>定义资源</strong>：通过表映射或 SQL 实验室创建 API 资源条目。</p>
+    <p style="margin:0 0 10px 0;font-size:14px;color:#374151;line-height:1.85;"><span style="color:#0ea5e9;font-weight:bold;">③</span> <strong>授权发布</strong>：为角色/用户分配资源访问权限，生成 API Key。</p>
+    <p style="margin:0 0 10px 0;font-size:14px;color:#374151;line-height:1.85;"><span style="color:#0ea5e9;font-weight:bold;">④</span> <strong>对外调用</strong>：客户端携带 <code style="font-size:12px;background:#e0f2fe;padding:1px 5px;border-radius:3px;">X-API-Key</code> 调用 <code style="font-size:12px;background:#e0f2fe;padding:1px 5px;border-radius:3px;">/api/v1/query</code> 或资源直连接口。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;"><span style="color:#0ea5e9;font-weight:bold;">⑤</span> <strong>审计回溯</strong>：所有调用写入按天分表日志，支持 Trace ID 排障。</p>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== Key Features ========== -->
+  <section style="margin:0 0 20px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #2563eb;padding-left:12px;line-height:1.4;">🚀 Key Features</p>
+  </section>
+
+  <!-- Feature Card 01 -->
+  <section style="margin:0 0 16px 0;padding:16px 14px;background-color:#eef6ff;border:1px solid #cfe3ff;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#1e40af;line-height:1.5;">01 🚀 动态资源服务化 (Resource-as-an-API)</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#3b82f6;font-weight:bold;">●</span> <strong>双模式引擎</strong>：<code style="font-size:12px;background:#dbeafe;padding:1px 4px;border-radius:3px;">TABLE</code> 零代码映射物理表；<code style="font-size:12px;background:#dbeafe;padding:1px 4px;border-radius:3px;">SQL</code> 封装复杂逻辑，支持 Jinja2 动态模板条件分支。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#3b82f6;font-weight:bold;">●</span> <strong>统一查询 DSL</strong>：<code style="font-size:12px;background:#dbeafe;padding:1px 4px;border-radius:3px;">/api/v1/query</code> 与 <code style="font-size:12px;background:#dbeafe;padding:1px 4px;border-radius:3px;">/api/v1/resources/{key}</code> 支持 EQ / IN / LIKE / 范围比较与分页排序。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#3b82f6;font-weight:bold;">●</span> <strong>资源生命周期</strong>：状态映射、缓存 TTL、Key 长度扩展与细粒度发布管控。</p>
+  </section>
+
+  <!-- Feature Card 02 -->
+  <section style="margin:0 0 16px 0;padding:16px 14px;background-color:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#0369a1;line-height:1.5;">02 🧪 AI 驱动的 SQL 实验室 (SQL Lab)</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#0ea5e9;font-weight:bold;">●</span> <strong>智能 SQL 辅助</strong>：LLM 生成、语法纠错、字段中文标签补全，支持流式对话式分析。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#0ea5e9;font-weight:bold;">●</span> <strong>安全预览与执行</strong>：<code style="font-size:12px;background:#e0f2fe;padding:1px 4px;border-radius:3px;">sqlparse</code> 静态分析拦截 DELETE/DROP 等高危操作，强制 LIMIT；支持 Oracle / ClickHouse / MySQL 多源预览。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#0ea5e9;font-weight:bold;">●</span> <strong>一键发布</strong>：调试通过的 SQL 即时发布为受 RBAC 管控的 API 资源。</p>
+  </section>
+
+  <!-- Feature Card 03 -->
+  <section style="margin:0 0 16px 0;padding:16px 14px;background-color:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#047857;line-height:1.5;">03 🗂️ 元数据与多源数据源治理</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#10b981;font-weight:bold;">●</span> <strong>多源连接池</strong>：统一管理 MySQL、ClickHouse、Oracle，支持连接测试、拖拽排序与角色隔离。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#10b981;font-weight:bold;">●</span> <strong>语义元数据 V2</strong>：数据集、表、字段、指标与实体关系结构化建模；AI 智能发现指标、YAML 生成与血缘分析。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#10b981;font-weight:bold;">●</span> <strong>健康度治理</strong>：元数据健康评分、创建人追踪、向量同步状态与权限模拟器。</p>
+  </section>
+
+  <!-- Feature Card 04 -->
+  <section style="margin:0 0 16px 0;padding:16px 14px;background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#b45309;line-height:1.5;">04 🛡️ 企业级安全、审计与 RBAC</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#f59e0b;font-weight:bold;">●</span> <strong>细粒度 RBAC</strong>：权限精确到数据源、物理表、API 资源点与 UI 元素；角色成员批量分配与缓存失效。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#f59e0b;font-weight:bold;">●</span> <strong>全链路审计</strong>：<code style="font-size:12px;background:#fef3c7;padding:1px 4px;border-radius:3px;">api_access_logs_YYYYMMDD</code> 按天分表，支持 Trace ID、高级过滤与导出。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#f59e0b;font-weight:bold;">●</span> <strong>数据脱敏</strong>：全局 / 角色 / 用户级脱敏策略，字段规则可配置。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#f59e0b;font-weight:bold;">●</span> <strong>双认证体系</strong>：API Key + Session 双通道；个人 API Key 管理与限流配置。</p>
+  </section>
+
+  <!-- Feature Card 05 -->
+  <section style="margin:0 0 16px 0;padding:16px 14px;background-color:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#7e22ce;line-height:1.5;">05 📊 全链路可观测性与运维</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#a855f7;font-weight:bold;">●</span> <strong>实时看板</strong>：24h/7d 调用趋势、Top 接口/用户、在线用户统计与最近活动。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#a855f7;font-weight:bold;">●</span> <strong>分钟级聚合</strong>：<code style="font-size:12px;background:#f3e8ff;padding:1px 4px;border-radius:3px;">APScheduler</code> 异步汇总 <code style="font-size:12px;background:#f3e8ff;padding:1px 4px;border-radius:3px;">api_access_stats_1m</code>，看板秒开。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#a855f7;font-weight:bold;">●</span> <strong>连接池监控</strong>：各数据源连接池活跃度与健康状态可视化；系统资源监控（CPU/内存/磁盘/Redis）。</p>
+  </section>
+
+  <!-- Feature Card 06 -->
+  <section style="margin:0 0 16px 0;padding:16px 14px;background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#15803d;line-height:1.5;">06 🔌 开放集成与生态互补</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#22c55e;font-weight:bold;">●</span> <strong>标准化对外 API</strong>：<code style="font-size:12px;background:#dcfce7;padding:1px 4px;border-radius:3px;">/api/v1</code> 公开接口与管理后台 Portal API，配套
+      <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/blob/main/architech/design/API_INTEGRATION_GUIDE.md" style="color:#16a34a;text-decoration:none;">API 集成指南</a>。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#22c55e;font-weight:bold;">●</span> <strong>智能体平台对接</strong>：作为云枢 AI 智能体平台 Data API 与元数据治理层，为 ChatBI / Agent 提供标准化数据访问。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#22c55e;font-weight:bold;">●</span> <strong>Oracle 专项支持</strong>：Thin / Thick 双驱动适配，详见
+      <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/blob/main/architech/design/ORACLE_INTEGRATION_GUIDE.md" style="color:#16a34a;text-decoration:none;">Oracle 集成指南</a>。</p>
+  </section>
+
+  <!-- Feature Card 07 -->
+  <section style="margin:0 0 28px 0;padding:16px 14px;background-color:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;">
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#334155;line-height:1.5;">07 📄 文档与开源资产</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#64748b;font-weight:bold;">●</span> <strong>双语 README</strong>：中英文文档，含系统架构图、核心能力全景图与 6 张管理后台界面截屏。</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#64748b;font-weight:bold;">●</span> <strong>部署指南</strong>：
+      <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/blob/main/HOW_TO_INSTALL.md" style="color:#475569;text-decoration:none;">HOW_TO_INSTALL.md</a> 覆盖 Docker 离线部署与本地开发联调。</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.85;text-align:justify;"><span style="color:#64748b;font-weight:bold;">●</span> <strong>一键开发脚本</strong>：<code style="font-size:12px;background:#e2e8f0;padding:1px 4px;border-radius:3px;">dev.sh</code> 自动编译前端、释放端口并以 --reload 模式启动后端。</p>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== 界面预览 ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #8b5cf6;padding-left:12px;line-height:1.4;">🖼️ 管理后台界面预览</p>
+    <p style="margin:0 0 16px 0;font-size:14px;color:#6b7280;line-height:1.8;">以下截屏请在发布前于微信编辑器中重新上传对应图片并替换 src。</p>
+  </section>
+
+  <section style="margin:0 0 12px 0;text-align:center;">
+    <p style="margin:0 0 8px 0;font-size:15px;font-weight:bold;color:#374151;">🔐 统一登录入口</p>
+    <img src="../../images/login.png" alt="登录页" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto 20px auto;border-radius:8px;border:1px solid #e5e7eb;" />
+  </section>
+  <section style="margin:0 0 12px 0;text-align:center;">
+    <p style="margin:0 0 8px 0;font-size:15px;font-weight:bold;color:#374151;">📊 可观测性看板</p>
+    <img src="../../images/dashboard.png" alt="仪表盘" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto 20px auto;border-radius:8px;border:1px solid #e5e7eb;" />
+  </section>
+  <section style="margin:0 0 12px 0;text-align:center;">
+    <p style="margin:0 0 8px 0;font-size:15px;font-weight:bold;color:#374151;">🚀 API 资源管理</p>
+    <img src="../../images/resource.png" alt="资源管理" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto 20px auto;border-radius:8px;border:1px solid #e5e7eb;" />
+  </section>
+  <section style="margin:0 0 12px 0;text-align:center;">
+    <p style="margin:0 0 8px 0;font-size:15px;font-weight:bold;color:#374151;">🧪 SQL 实验室</p>
+    <img src="../../images/sqllab.png" alt="SQL 实验室" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto 20px auto;border-radius:8px;border:1px solid #e5e7eb;" />
+  </section>
+  <section style="margin:0 0 12px 0;text-align:center;">
+    <p style="margin:0 0 8px 0;font-size:15px;font-weight:bold;color:#374151;">🛡️ 权限与角色 (RBAC)</p>
+    <img src="../../images/rbac.png" alt="RBAC" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto 20px auto;border-radius:8px;border:1px solid #e5e7eb;" />
+  </section>
+  <section style="margin:0 0 28px 0;text-align:center;">
+    <p style="margin:0 0 8px 0;font-size:15px;font-weight:bold;color:#374151;">📋 全链路审计日志</p>
+    <img src="../../images/audit.png" alt="审计日志" style="display:block;width:100%;max-width:100%;height:auto;margin:0 auto;border-radius:8px;border:1px solid #e5e7eb;" />
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== First Deploy Notes ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #dc2626;padding-left:12px;line-height:1.4;">⚠️ 首次部署注意事项</p>
+  </section>
+  <section style="margin:0 0 12px 0;padding:12px 16px;background:#fef2f2;border-left:4px solid #dc2626;border-radius:0 6px 6px 0;">
+    <p style="margin:0;font-size:15px;color:#991b1b;line-height:1.7;">首次部署 v1.0.0 时，请特别注意以下事项：</p>
+  </section>
+  <section style="margin:0 0 28px 0;overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.6;">
+      <thead>
+        <tr>
+          <th style="padding:10px 8px;background:#fef2f2;color:#991b1b;font-weight:bold;border:1px solid #fecaca;text-align:left;width:30%;">项目</th>
+          <th style="padding:10px 8px;background:#fef2f2;color:#991b1b;font-weight:bold;border:1px solid #fecaca;text-align:left;">说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;">数据库初始化</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;">须通过 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">apply-sql.sh</code> 或 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">apply-sql-native.sh</code> 执行 V0–V25 全量迁移（幂等可重复执行）。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;background:#f9fafb;">管理员账号</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;background:#f9fafb;">可导入 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">INIT-USER-ADMIN.sql</code> 或运行 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">create_admin_user.py</code>。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;">加密密钥</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;">生产环境务必在 .env 中配置独立 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">ENCRYPTION_KEY</code>，勿用示例默认值。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;background:#f9fafb;">Redis（推荐）</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;background:#f9fafb;">建议开启 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">REDIS_ENABLE=true</code>，用于缓存、限流与异步统计聚合。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;">Docker 架构</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;">Mac（Apple Silicon）打 x86 包请用 <code style="font-size:12px;background:#f3f4f6;padding:1px 5px;border-radius:3px;">build_linux_x86.sh</code>，勿用 build_native.sh。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== Database Schema ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #10b981;padding-left:12px;line-height:1.4;">🗄️ Database Schema（数据库结构说明）</p>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;">v1.0.0 首次部署包含 <strong>25 个</strong>版本化迁移脚本（存放于 db-prod/ 目录）：</p>
+  </section>
+  <section style="margin:0 0 12px 0;padding:12px 16px;background:#fff7ed;border-left:4px solid #f59e0b;border-radius:0 6px 6px 0;">
+    <p style="margin:0;font-size:14px;color:#92400e;line-height:1.7;">⚠️ 请在部署前通过 <code style="font-size:12px;background:#fef3c7;padding:1px 5px;border-radius:3px;">./db-prod/apply-sql-native.sh</code> 将全量 SQL 自动、安全地导入目标 MySQL 数据库。</p>
+  </section>
+  <section style="margin:0 0 28px 0;overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.6;">
+      <thead>
+        <tr>
+          <th style="padding:10px 8px;background:#f0fdf4;color:#047857;font-weight:bold;border:1px solid #a7f3d0;text-align:left;width:28%;">脚本范围</th>
+          <th style="padding:10px 8px;background:#f0fdf4;color:#047857;font-weight:bold;border:1px solid #a7f3d0;text-align:left;">核心变更内容</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;">V0–V9</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;">动态资源配置、数据源管理、SQL 执行、用户认证、审计索引、分钟级统计聚合、系统配置与维护日志。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;background:#f9fafb;">V10–V14</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;background:#f9fafb;">AI 配置初始化、RBAC 与 UI 权限、限流配置、审计动作类型、按天分表审计日志模板。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;">V15–V18</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;">数据源排序、废弃日志表清理、数据脱敏策略。</td>
+        </tr>
+        <tr>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;font-weight:bold;background:#f9fafb;">V19–V25</td>
+          <td style="padding:10px 8px;border:1px solid #e5e7eb;color:#374151;background:#f9fafb;">语义元数据、元数据 RBAC、AI Embedding/Rerank 配置、健康评分与创建人追踪。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== Quick Start ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #7c3aed;padding-left:12px;line-height:1.4;">📦 Quick Start</p>
+    <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#374151;">本地快速开发模式</p>
+  </section>
+  <section style="margin:0 0 20px 0;padding:14px 16px;background:#1e1e2e;border-radius:8px;">
+    <p style="margin:0 0 6px 0;font-size:13px;color:#a5b4fc;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;"># 1. 准备环境</p>
+    <p style="margin:0 0 4px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">python3 -m venv venv &amp;&amp; source venv/bin/activate</p>
+    <p style="margin:0 0 10px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">pip install -r requirements.txt &amp;&amp; cp env.example .env</p>
+    <p style="margin:0 0 6px 0;font-size:13px;color:#a5b4fc;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;"># 2. 数据库初始化</p>
+    <p style="margin:0 0 10px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">./db-prod/apply-sql-native.sh</p>
+    <p style="margin:0 0 6px 0;font-size:13px;color:#a5b4fc;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;"># 3. 一键开发联调（推荐）</p>
+    <p style="margin:0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">./dev.sh</p>
+  </section>
+
+  <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#374151;">Docker 离线部署</p>
+  <section style="margin:0 0 16px 0;padding:14px 16px;background:#1e1e2e;border-radius:8px;">
+    <p style="margin:0 0 4px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">cd docker &amp;&amp; cp ../env.example .env</p>
+    <p style="margin:0 0 4px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">./build_linux_x86.sh 1.0.0</p>
+    <p style="margin:0 0 4px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">docker load -i release/yunshu-api_1.0.0_linux-amd64_*.tar</p>
+    <p style="margin:0 0 4px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">docker tag yunshu-api:1.0.0 yunshu-api:latest</p>
+    <p style="margin:0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">./start-yunshu-api-server.sh</p>
+  </section>
+  <p style="margin:0 0 28px 0;font-size:14px;color:#6b7280;line-height:1.8;">
+    完整部署说明请参考
+    <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/blob/main/HOW_TO_INSTALL.md" style="color:#2563eb;text-decoration:none;">HOW_TO_INSTALL.md</a> ·
+    <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/blob/main/docs/guides/getting-started.md" style="color:#2563eb;text-decoration:none;">开发者快速入门</a>
+  </p>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== Test Checklist ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 16px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #0891b2;padding-left:12px;line-height:1.4;">✅ Test Checklist</p>
+    <p style="margin:0 0 12px 0;font-size:15px;color:#374151;">部署后建议验证以下核心场景：</p>
+  </section>
+  <section style="margin:0 0 28px 0;padding:14px 16px;background-color:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;">
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>动态资源 API</strong>：/api/v1/resources/{key} 分页、过滤、排序与鉴权隔离</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>统一查询</strong>：/api/v1/query 多维 DSL 过滤与安全校验</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>SQL 实验室</strong>：多源预览、AI 生成/修复、高危 SQL 拦截与一键发布</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>数据源管理</strong>：MySQL / ClickHouse / Oracle 连接测试、CRUD 与排序</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>元数据 V2</strong>：语义元数据 CRUD、AI 指标发现、血缘分析与权限模拟</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>RBAC</strong>：角色成员分配、数据源/表/资源点细粒度授权</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>审计日志</strong>：按天分表写入、高级过滤、Trace ID 排障与导出</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>可观测看板</strong>：调用趋势、Top 排行、在线用户与连接池健康</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.8;">☐ <strong>回归测试</strong>：pytest tests/ 核心用例通过（详见
+      <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/blob/main/tests/CHECKLIST.md" style="color:#0891b2;text-decoration:none;">CHECKLIST.md</a>）</p>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== Downloads ========== -->
+  <section style="margin:0 0 8px 0;">
+    <p style="margin:0 0 12px 0;font-size:20px;font-weight:bold;color:#111827;border-left:5px solid #d97706;padding-left:12px;line-height:1.4;">💾 Downloads / Assets</p>
+    <p style="margin:0 0 16px 0;font-size:15px;color:#374151;line-height:1.8;">本项目 v1.0.0 发布版本关联的源码、Docker 镜像资产归档包及配置文件如下：</p>
+  </section>
+  <section style="margin:0 0 16px 0;padding:14px 16px;background-color:#fffbeb;border:1px solid #fde68a;border-radius:10px;">
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">📦 <strong>Source Code (zip)</strong>：yunshu-api-data-platform-1.0.0.zip</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">📦 <strong>Source Code (tar.gz)</strong>：yunshu-api-data-platform-1.0.0.tar.gz</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">🐳 <strong>Docker Image for Linux amd64 (x86_64)</strong>：yunshu-api_1.0.0_linux-amd64_*.tar</p>
+    <p style="margin:0 0 8px 0;font-size:14px;color:#374151;line-height:1.8;">🐳 <strong>Docker Image for Linux arm64 (aarch64)</strong>：yunshu-api_1.0.0_linux-arm64_*.tar</p>
+    <p style="margin:0;font-size:14px;color:#374151;line-height:1.8;">⚙️ <strong>Docker Compose YAML file</strong>：docker-compose.yml</p>
+  </section>
+
+  <p style="margin:0 0 12px 0;font-size:16px;font-weight:bold;color:#374151;">🐳 离线/内网环境加载 Docker 镜像</p>
+  <section style="margin:0 0 16px 0;padding:14px 16px;background:#1e1e2e;border-radius:8px;">
+    <p style="margin:0 0 6px 0;font-size:13px;color:#a5b4fc;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;"># 1. 加载本地镜像归档</p>
+    <p style="margin:0 0 10px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">docker load -i yunshu-api_1.0.0_linux-amd64_*.tar</p>
+    <p style="margin:0 0 6px 0;font-size:13px;color:#a5b4fc;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;"># 2. 检查是否加载成功</p>
+    <p style="margin:0 0 10px 0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">docker images | grep yunshu-api</p>
+    <p style="margin:0 0 6px 0;font-size:13px;color:#a5b4fc;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;"># 3. 启动服务</p>
+    <p style="margin:0;font-size:13px;color:#e2e8f0;line-height:1.8;font-family:Menlo,Monaco,Consolas,monospace;word-break:break-all;">cd docker &amp;&amp; ./start-yunshu-api-server.sh</p>
+  </section>
+  <section style="margin:0 0 20px 0;padding:12px 16px;background:#fffbeb;border-radius:8px;text-align:center;">
+    <p style="margin:0;font-size:15px;color:#92400e;line-height:1.7;">
+      🔗 <strong>下载地址：</strong>
+      <a href="https://github.com/RandyChen1985/yunshu-api-data-platform/releases/tag/1.0.0" style="color:#d97706;text-decoration:none;font-weight:bold;">GitHub Releases v1.0.0</a>
+    </p>
+  </section>
+
+  <section style="margin:28px 0;height:1px;background:#e5e7eb;"></section>
+
+  <!-- ========== Contributors ========== -->
+  <section style="margin:0 0 0 0;padding:20px 16px;background:linear-gradient(135deg,#f8fafc 0%,#e2e8f0 100%);border-radius:10px;text-align:center;">
+    <p style="margin:0;font-size:16px;font-weight:bold;color:#374151;line-height:1.7;">🤝 Contributors</p>
+    <p style="margin:10px 0 0 0;font-size:15px;color:#6b7280;line-height:1.8;">感谢所有参与 v1.0.0 版本发布的开发者！</p>
+    <p style="margin:12px 0 0 0;font-size:14px;color:#9ca3af;line-height:1.8;">
+      <em>Connect Data. Serve Intelligence.</em>
+    </p>
+  </section>
+
+</section>

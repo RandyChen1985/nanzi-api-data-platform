@@ -140,6 +140,8 @@ docker_build_args() {
   DOCKER_BUILD_ARGS=(-f "$SCRIPT_DIR/Dockerfile" -t "$IMAGE_NAME" --build-arg "APP_VERSION=$VERSION")
   if [[ "${PREBUILD_FRONTEND:-0}" == "1" ]]; then
     DOCKER_BUILD_ARGS+=(--build-arg "PREBUILD_FRONTEND=1")
+    # 宿主机预构建后 dist 会进入 build context；刷新 frontend-builder 层，避免旧缓存无 dist
+    DOCKER_BUILD_ARGS+=(--no-cache-filter frontend-builder)
   fi
 }
 
@@ -209,6 +211,9 @@ fi
 if [[ "$SHOULD_PREBUILD" == "1" ]]; then
   build_frontend_on_host
   PREBUILD_FRONTEND=1
+else
+  # 容器内 vite build 时避免将宿主机陈旧 dist 打进镜像
+  rm -rf "$PROJECT_ROOT/frontend/dist"
 fi
 
 run_build

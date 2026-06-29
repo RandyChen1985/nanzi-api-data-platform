@@ -4,25 +4,12 @@ from .models import LogicalQuery, ResultSet
 from app.schemas.resource import ResourceResponse
 import aiomysql
 import logging
-from jinja2 import Environment, BaseLoader, meta
+from jinja2 import meta
+from app.utils.jinja_sql import SQL_LAB_ENV, TEMPLATE_ENV
 
 logger = logging.getLogger(__name__)
 
-# --- Jinja2 Environment Optimization ---
-from jinja2 import DebugUndefined, Undefined
 
-# 1. Standard Template Env (keeps {{ var }} if undefined, for later replacing)
-TEMPLATE_ENV = Environment(loader=BaseLoader(), undefined=DebugUndefined)
-
-# 2. SQL Lab Env (handles NULLs gracefully for column fetching)
-class SqlLabUndefined(Undefined):
-    def __str__(self): return "NULL"
-    def __html__(self): return "NULL"
-    def __iter__(self): return iter([])
-    def __bool__(self): return False
-
-SQL_LAB_ENV = Environment(loader=BaseLoader(), undefined=SqlLabUndefined)
-# ---------------------------------------
 class MySQLAdapter(DataSourceAdapter):
     """MySQL Adapter using aiomysql with parameterized queries"""
     

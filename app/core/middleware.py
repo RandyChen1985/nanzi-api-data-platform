@@ -7,7 +7,21 @@ import logging
 import json
 from contextvars import ContextVar
 from app.core.database import get_db_connection
+from app.core.config import settings
 from app.utils.sharding import ensure_audit_table_exists
+
+logger = logging.getLogger(__name__)
+
+# Max chars for audit response body (truncated to reduce storage & sensitive data exposure)
+def _truncate_response_body(body: str | None) -> str | None:
+    if body is None:
+        return None
+    max_chars = settings.AUDIT_RESPONSE_BODY_MAX_CHARS
+    if max_chars <= 0:
+        return None
+    if len(body) <= max_chars:
+        return body
+    return body[:max_chars] + "…[truncated]"
 
 # Context variable to store trace_id for access in Pydantic models/other services
 request_trace_id: ContextVar[str] = ContextVar("request_trace_id", default="")
@@ -150,7 +164,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             "process_time_ms": duration_ms,
             "client_ip": request.client.host if request.client else "unknown",
             "request_params": json.dumps(params_dict, ensure_ascii=False),
-            "response_body": response_body,
+            "response_body": _truncate_response_body(response_body),
             "action_type": getattr(request.state, "action_type", "API_QUERY"),
             "source_sql": getattr(request.state, "source_sql", None),
             "created_at": time.strftime('%Y-%m-%d %H:%M:%S')

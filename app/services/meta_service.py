@@ -325,12 +325,6 @@ class MetaService:
             "recalled_items": recalled_items
         }
 
-        results = await asyncio.gather(*[fetch_table_info(t) for t in target_tables])
-        return {
-            "context": "DATABASE SCHEMA CONTEXT (YAML):\n---\n" + "\n\n".join([r for r in results if r]),
-            "recalled_items": recalled_items
-        }
-
     @classmethod
     async def check_resource_access(cls, user_id: int, resource_key: str) -> bool:
         async with get_db_connection() as conn:

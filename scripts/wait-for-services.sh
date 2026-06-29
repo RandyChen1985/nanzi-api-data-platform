@@ -5,18 +5,24 @@ set -e
 
 echo "🔍 Checking service dependencies..."
 
-# 加载环境变量
 if [ -f .env ]; then
-    export $(cat .env | grep -v '^#' | xargs)
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
 fi
 
-# 等待 MySQL
-echo "⏳ Waiting for MySQL at ${MYSQL_HOST}:${MYSQL_PORT}..."
+MYSQL_HOST="${MYSQL_HOST:-localhost}"
+MYSQL_PORT="${MYSQL_PORT:-3306}"
+REDIS_HOST="${REDIS_HOST:-localhost}"
+REDIS_PORT="${REDIS_PORT:-6379}"
 timeout=60
+
+echo "⏳ Waiting for MySQL at ${MYSQL_HOST}:${MYSQL_PORT}..."
 counter=0
-until nc -z ${MYSQL_HOST} ${MYSQL_PORT} 2>/dev/null; do
-    counter=$((counter+1))
-    if [ $counter -gt $timeout ]; then
+until nc -z "${MYSQL_HOST}" "${MYSQL_PORT}" 2>/dev/null; do
+    counter=$((counter + 1))
+    if [ "$counter" -gt "$timeout" ]; then
         echo "❌ MySQL is not available after ${timeout}s"
         exit 1
     fi
@@ -24,26 +30,12 @@ until nc -z ${MYSQL_HOST} ${MYSQL_PORT} 2>/dev/null; do
 done
 echo "✅ MySQL is ready"
 
-# 等待 ClickHouse
-echo "⏳ Waiting for ClickHouse at ${CLICKHOUSE_HOST}:${CLICKHOUSE_PORT}..."
-counter=0
-until nc -z ${CLICKHOUSE_HOST} ${CLICKHOUSE_PORT} 2>/dev/null; do
-    counter=$((counter+1))
-    if [ $counter -gt $timeout ]; then
-        echo "❌ ClickHouse is not available after ${timeout}s"
-        exit 1
-    fi
-    sleep 1
-done
-echo "✅ ClickHouse is ready"
-
-# 等待 Redis
-if [ "${REDIS_ENABLE}" = "true" ] || [ "${REDIS_ENABLE}" = "True" ]; then
+if [ "${REDIS_ENABLE}" = "true" ] || [ "${REDIS_ENABLE}" = "True" ] || [ "${REDIS_ENABLE}" = "1" ]; then
     echo "⏳ Waiting for Redis at ${REDIS_HOST}:${REDIS_PORT}..."
     counter=0
-    until nc -z ${REDIS_HOST} ${REDIS_PORT} 2>/dev/null; do
-        counter=$((counter+1))
-        if [ $counter -gt $timeout ]; then
+    until nc -z "${REDIS_HOST}" "${REDIS_PORT}" 2>/dev/null; do
+        counter=$((counter + 1))
+        if [ "$counter" -gt "$timeout" ]; then
             echo "❌ Redis is not available after ${timeout}s"
             exit 1
         fi
@@ -51,9 +43,9 @@ if [ "${REDIS_ENABLE}" = "true" ] || [ "${REDIS_ENABLE}" = "True" ]; then
     done
     echo "✅ Redis is ready"
 else
-    echo "⚠️  Redis check skipped (disabled in config)"
+    echo "⚠️  Redis check skipped (REDIS_ENABLE=false)"
 fi
 
 echo ""
-echo "🚀 All services are ready! Starting application..."
+echo "🚀 Dependencies ready. Starting application..."
 echo ""

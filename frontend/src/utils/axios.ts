@@ -44,10 +44,11 @@ instance.interceptors.response.use(
       
       switch (status) {
         case 401:
-          // 未授权，清除本地存储并跳转登录
           localStorage.removeItem('api_key')
           localStorage.removeItem('user_info')
-          window.location.href = '/login'
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login'
+          }
           break
           
         case 403:

@@ -1,9 +1,12 @@
 from fastapi import Header, HTTPException, status, Depends, Cookie, Request
 from typing import Optional, Dict
 import datetime
+import logging
 from app.core import redis
 from app.services.auth_service import AuthService
 from app.services.system_service import SystemService
+
+logger = logging.getLogger(__name__)
 
 async def require_api_key(
     request: Request,
@@ -55,8 +58,7 @@ async def require_api_key(
                 user_info["permissions"] = perms_dict
                 user_info["role"] = perms_resp.role  # Ensure root role is also updated
             except Exception as e:
-                # Fallback to empty permissions on error
-                print(f"Error fetching permissions for user {user_info.get('user_id')}: {e}")
+                logger.error("Error fetching permissions for user %s: %s", user_info.get("user_id"), e)
                 user_info["permissions"] = {"menus": [], "elements": [], "resources": [], "role": user_info.get("role")}
             # ----------------------------------------------------------------
             request.state.user = user_info
@@ -133,8 +135,7 @@ async def check_rate_limit(request: Request, user: Dict = Depends(require_api_ke
     except HTTPException:
         raise
     except Exception as e:
-        # Fail-open for any Redis exceptions
-        print(f"Rate limit Redis error (Fail-Open): {e}")
+        logger.warning("Rate limit Redis error (fail-open): %s", e)
         return
 
 async def require_admin(user: Dict = Depends(require_api_key)) -> Dict:

@@ -8,6 +8,9 @@ from app.core.redis import get_redis
 from app.core.config import settings
 from app.utils.encryption import get_api_key_manager
 from passlib.context import CryptContext
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Explicitly use bcrypt and handle potential compatibility issues with newer bcrypt versions
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -273,7 +276,7 @@ class AuthService:
                     return manager.decrypt_api_key(result[0])
                 except ValueError as e:
                     # 解密失败（可能密钥损坏）
-                    print(f"Failed to decrypt API Key for user {user_id}: {e}")
+                    logger.warning("Failed to decrypt API Key for user %s: %s", user_id, e)
                     return None
     
     @staticmethod
@@ -348,7 +351,7 @@ class AuthService:
             return None
         except Exception as e:
             # SSO API 调用失败
-            print(f"SSO API call failed: {e}")
+            logger.warning("SSO API call failed: %s", e)
             return None
         
         # 2. SSO 验证成功，查询本地用户

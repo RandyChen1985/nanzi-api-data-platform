@@ -2,7 +2,7 @@
 .git
 .gitignore
 
-# IDE
+# IDE & agent tooling
 .vscode
 .idea
 .gemini
@@ -19,27 +19,31 @@ venv/
 ENV/
 .venv
 
-# Testing
+# Testing & coverage
 .pytest_cache
 .coverage
 htmlcov/
 .tox/
+tests/
 
 # Environment
 .env
 .env.*
 !env.example
 
-# Frontend source (ONLY exclude node_modules and dist)
-# Crucial: package.json and src MUST NOT be ignored for Docker build
+# Frontend source (exclude node_modules; dist 需保留以便宿主机预构建后 COPY 进镜像)
 frontend/node_modules
-frontend/dist
 
-# Docs and metadata (safe to ignore)
+# Docs and metadata (not needed in runtime image)
 architech/
 openspec/
+docs/
 AGENTS.md
 
-# Logs
+# Logs & debug scripts
 *.log
 logs/
+scripts/debug_*.py
+
+# Build artifacts
+docker/release/

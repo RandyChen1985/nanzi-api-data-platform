@@ -16,21 +16,17 @@ from app.core.errors import ErrorCode
 from app.core.openapi import custom_openapi, tags_metadata # Import OpenAPI Logic
 from asynch.errors import InterfaceError
 from aiomysql import OperationalError
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from app.jobs.aggregator import aggregate_access_logs
-from app.jobs.cleaner import clean_old_access_logs
+from app.jobs.scheduler import start_scheduler, shutdown_scheduler
 import logging
 import datetime
 import uuid
 
-# Configure logging
+# Configure logging from settings
+_log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s:     %(message)s'
+    level=_log_level,
+    format="%(levelname)s:     %(message)s",
 )
-
-# Initialize Scheduler
-scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,20 +35,11 @@ async def lifespan(app: FastAPI):
     
     await database.init_db()
     await redis.init_redis()
-    
-    # Register Background Jobs
-    # 1. Log Aggregation (Every 1 minute)
-    scheduler.add_job(aggregate_access_logs, 'cron', minute='*')
-    
-    # 2. Log Cleaning (Daily at 03:00 AM)
-    scheduler.add_job(clean_old_access_logs, 'cron', hour=3, minute=0)
-    
-    scheduler.start()
-    logging.info("⏰ Scheduler started: Registered aggregation and cleaning jobs.")
+    start_scheduler()
     
     yield
     # Shutdown
-    scheduler.shutdown()
+    shutdown_scheduler()
     await database.close_db()
     await redis.close_redis()
 
@@ -260,13 +247,35 @@ app.include_router(
 )
 app.include_router(portal_router, prefix="/api/portal", include_in_schema=False)  # 不在文档中显示
 
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import os
-
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    checks = {"mysql": "ok", "redis": "ok"}
+    try:
+        async with database.get_db_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute("SELECT 1")
+    except Exception as exc:
+        checks["mysql"] = str(exc)
+
+    if settings.REDIS_ENABLE:
+        try:
+            r = await redis.get_redis()
+            if r:
+                await r.ping()
+            else:
+                checks["redis"] = "unavailable"
+        except Exception as exc:
+            checks["redis"] = str(exc)
+    else:
+        checks["redis"] = "disabled"
+
+    healthy = checks["mysql"] == "ok" and checks["redis"] in ("ok", "disabled")
+    payload = {
+        "status": "ok" if healthy else "degraded",
+        "checks": checks,
+        "version": app.version,
+    }
+    return JSONResponse(status_code=200 if healthy else 503, content=payload)
 
 # --- Documentation Security ---
 
