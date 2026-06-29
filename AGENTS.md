@@ -48,3 +48,15 @@ cd docker && ./build_linux_x86.sh 1.0.0     # 构建 x86 镜像
 - 不要在 Cookie 或日志中存储明文 API Key / 密码
 - 不要跳过 SQL 安全校验直接执行用户输入
 - 不要提交 `.env` 或真实密钥到仓库
+
+## Git 协作：用户说「代码已合」
+
+用户表示 PR/代码已合并后，**必须先同步远程再开发**，不要只口头确认：
+
+1. `git fetch origin`
+2. `git pull origin dev`（默认在 `dev` 分支继续开发）
+3. 汇报：`dev` / `main` 最新 commit、是否与 `origin/dev` 一致
+4. 若工作区有无关脏文件（如 `package-lock.json` 本地 build 产物），提示用户是否 `git restore`，**不要擅自提交**
+5. **不要**在用户未要求时 push、merge main、或创建新 PR
+
+用户未指定分支时，默认继续在 **`dev`** 上开发。

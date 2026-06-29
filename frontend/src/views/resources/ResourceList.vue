@@ -10,7 +10,7 @@ import ResourceLogDrawer from '@/components/resources/ResourceLogDrawer.vue'
 import ConfirmDeleteModal from '@/components/resources/ConfirmDeleteModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import type { Resource, AccessLog, ResourceSortField, ResourceGroupTab } from '@/types/resource'
-import { isSystemResourceGroup, sortResourceGroups } from '@/types/resource'
+import { isSystemResourceGroup, sortResourceGroups, isLockedSystemResource, displayResourceMode } from '@/types/resource'
 import { CircleStackIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { Codemirror } from 'vue-codemirror'
 import { sql } from '@codemirror/lang-sql'
@@ -219,7 +219,7 @@ const toggleSelection = (key: string) => {
 }
 
 const navigateToResource = (res: Resource) => {
-  if (res.resource_key === 'system.sql.execute') return
+  if (isLockedSystemResource(res)) return
   router.push(`/dashboard/resources/${res.resource_key}`)
 }
 
@@ -278,7 +278,10 @@ const confirmBatchDelete = () => openDeleteModal(Array.from(selectedKeys.value))
 const executeDelete = async () => {
   deleteLoading.value = true
   let successCount = 0
-  const keys = [...deleteModalKeys.value]
+  const keys = deleteModalKeys.value.filter((key) => {
+    const res = resources.value.find((r) => r.resource_key === key)
+    return res && !isLockedSystemResource(res)
+  })
   for (const key of keys) {
     try {
       await axios.delete(`/api/portal/meta/resources/${key}`)
@@ -299,7 +302,10 @@ const batchUpdateStatus = async (status: number) => {
   if (selectedKeys.value.size === 0) return
   loading.value = true
   let successCount = 0
-  const keys = Array.from(selectedKeys.value)
+  const keys = Array.from(selectedKeys.value).filter((key) => {
+    const res = resources.value.find((r) => r.resource_key === key)
+    return res && !isLockedSystemResource(res)
+  })
   for (const key of keys) {
     try {
       await axios.put(`/api/portal/meta/resources/${key}`, { status })
@@ -338,7 +344,7 @@ const applyStatusChange = async (resource: Resource, newStatus: number) => {
 }
 
 const toggleStatus = (resource: Resource) => {
-  if (resource.resource_mode === 'SYSTEM' || !hasPerm('element:resource:edit')) return
+  if (isLockedSystemResource(resource) || !hasPerm('element:resource:edit')) return
   const newStatus = resource.status === 1 ? 0 : 1
   if (newStatus === 0) {
     openConfirmDialog({
@@ -672,8 +678,11 @@ onMounted(() => {
                 <tr
                   v-for="res in paginatedResources"
                   :key="res.resource_key"
-                  class="hover:bg-blue-50/40 transition-colors cursor-pointer"
-                  :class="{ 'bg-blue-50/60': selectedKeys.has(res.resource_key) }"
+                  class="hover:bg-blue-50/40 transition-colors"
+                  :class="[
+                    { 'bg-blue-50/60': selectedKeys.has(res.resource_key) },
+                    isLockedSystemResource(res) ? '' : 'cursor-pointer',
+                  ]"
                   @click="navigateToResource(res)"
                 >
                   <td v-if="hasPerm('element:resource:edit') || hasPerm('element:resource:delete')" class="px-3 py-3" @click.stop>
@@ -695,9 +704,9 @@ onMounted(() => {
                     <div class="whitespace-nowrap">
                       <span
                         class="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded border"
-                        :class="res.resource_mode === 'SQL' ? 'bg-amber-50 text-amber-700 border-amber-200' : res.resource_mode === 'SYSTEM' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'"
+                        :class="displayResourceMode(res) === 'SQL' ? 'bg-amber-50 text-amber-700 border-amber-200' : displayResourceMode(res) === 'SYSTEM' ? 'bg-gray-100 text-gray-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200'"
                       >
-                        {{ modeLabel(res.resource_mode) }}
+                        {{ modeLabel(displayResourceMode(res)) }}
                       </span>
                     </div>
                     <div class="text-[11px] text-gray-500 mt-1 truncate" :title="res.data_source">
@@ -726,9 +735,9 @@ onMounted(() => {
                   </td>
                   <td class="px-3 py-3 whitespace-nowrap" @click.stop>
                     <button
-                      :disabled="res.resource_mode === 'SYSTEM' || !hasPerm('element:resource:edit')"
+                      :disabled="isLockedSystemResource(res) || !hasPerm('element:resource:edit')"
                       class="relative inline-flex h-5 w-10 rounded-full transition-colors"
-                      :class="[res.status === 1 ? 'bg-green-500' : 'bg-gray-300', (res.resource_mode === 'SYSTEM' || !hasPerm('element:resource:edit')) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer']"
+                      :class="[res.status === 1 ? 'bg-green-500' : 'bg-gray-300', (isLockedSystemResource(res) || !hasPerm('element:resource:edit')) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer']"
                       :aria-label="res.status === 1 ? '已启用' : '已禁用'"
                       @click="toggleStatus(res)"
                     >

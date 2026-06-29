@@ -94,7 +94,9 @@ See [architech/design/API_INTEGRATION_GUIDE.md](architech/design/API_INTEGRATION
 | Doc | Description |
 |-----|-------------|
 | [HOW_TO_INSTALL.md](HOW_TO_INSTALL.md) | Installation & FAQ |
+| [architech/README.md](architech/README.md) | Architecture doc index |
 | [architech/design/API_INTEGRATION_GUIDE.md](architech/design/API_INTEGRATION_GUIDE.md) | Public API integration guide |
+| [architech/api-schema/sql_execution_api_usage.md](architech/api-schema/sql_execution_api_usage.md) | SQL execution API reference |
 | [docs/guides/getting-started.md](docs/guides/getting-started.md) | Developer quick start |
 | [architech/design/ORACLE_INTEGRATION_GUIDE.md](architech/design/ORACLE_INTEGRATION_GUIDE.md) | Oracle data source setup |
 | [db-prod/README.md](db-prod/README.md) | Database migrations & idempotent apply tools |

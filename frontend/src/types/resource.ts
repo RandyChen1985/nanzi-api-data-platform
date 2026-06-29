@@ -18,6 +18,32 @@ export interface Resource {
 /** 系统内置资源专用分组名（数据库迁移与 meta_service 硬编码使用） */
 export const SYSTEM_RESOURCE_GROUP = 'System'
 
+/** 列表中按系统内置锁定（状态不可改、模式展示为「系统」），DB 中 resource_mode 可能仍为 SQL */
+export const LOCKED_SYSTEM_RESOURCE_KEYS = new Set(['system.metadata.search'])
+
+export function isLockedSystemResource(resource: {
+  resource_key: string
+  resource_mode?: string
+}): boolean {
+  return resource.resource_mode === 'SYSTEM' || LOCKED_SYSTEM_RESOURCE_KEYS.has(resource.resource_key)
+}
+
+export function displayResourceMode(resource: {
+  resource_key: string
+  resource_mode: string
+}): string {
+  return isLockedSystemResource(resource) ? 'SYSTEM' : resource.resource_mode
+}
+
+/** system.sql.execute 使用 TTL/SQL 测试 + 更多菜单；system.metadata.search 仅保留调试 */
+export type SystemResourceActionKind = 'sql_execute' | 'metadata_search_debug_only'
+
+export function getSystemResourceActionKind(resourceKey: string): SystemResourceActionKind | null {
+  if (resourceKey === 'system.sql.execute') return 'sql_execute'
+  if (resourceKey === 'system.metadata.search') return 'metadata_search_debug_only'
+  return null
+}
+
 export interface ResourceGroupTab {
   name: string
   label: string

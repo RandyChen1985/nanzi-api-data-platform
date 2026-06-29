@@ -103,7 +103,7 @@ const handleLogin = async () => {
 <template>
   <div class="min-h-screen flex bg-gray-50 overflow-hidden">
     <!-- Left: Infinite Scroll Showcase -->
-    <div class="hidden lg:flex lg:w-3/5 relative bg-[#0f172a] overflow-hidden flex-col items-center justify-center">
+    <div class="hidden lg:flex lg:flex-[11] relative bg-[#0f172a] overflow-hidden flex-col items-center justify-center">
       
       <!-- Overlay Gradient -->
       <div class="absolute inset-0 z-20 bg-gradient-to-t from-[#0f172a] via-transparent to-[#0f172a]"></div>
@@ -230,7 +230,7 @@ const handleLogin = async () => {
     </div>
 
     <!-- Right: Login Form -->
-    <div class="w-full lg:w-2/5 flex items-center justify-center bg-gray-50 p-8 sm:p-12 relative z-10">
+    <div class="w-full lg:flex-[4] flex items-center justify-center bg-gray-50 p-8 sm:p-12 relative z-10">
       <div class="w-full max-w-sm space-y-8">
         <div class="text-center">
           <div class="flex justify-center mb-4">

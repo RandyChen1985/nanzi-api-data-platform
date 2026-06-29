@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import {
   DocumentMagnifyingGlassIcon,
   CommandLineIcon,
@@ -8,6 +8,7 @@ import {
   EllipsisVerticalIcon,
 } from '@heroicons/vue/24/outline'
 import type { Resource } from '@/types/resource'
+import { getSystemResourceActionKind, isLockedSystemResource } from '@/types/resource'
 import { buildPlaygroundRoute } from '@/utils/playground'
 
 const props = defineProps<{
@@ -85,13 +86,16 @@ onUnmounted(() => {
   window.removeEventListener('resize', onScrollOrResize)
 })
 
-const isSystemSql = props.resource.resource_key === 'system.sql.execute'
+const actionKind = computed(() => getSystemResourceActionKind(props.resource.resource_key))
+const showEditLink = computed(() => !actionKind.value)
+const showDebugLink = computed(() => !actionKind.value || actionKind.value === 'metadata_search_debug_only')
+const showMoreMenu = computed(() => !actionKind.value || actionKind.value === 'sql_execute')
 </script>
 
 <template>
   <div class="flex items-center justify-end gap-1 shrink-0 whitespace-nowrap" @click.stop>
     <router-link
-      v-if="!isSystemSql"
+      v-if="showEditLink"
       :to="`/dashboard/resources/${resource.resource_key}`"
       class="inline-flex items-center px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
     >
@@ -99,7 +103,7 @@ const isSystemSql = props.resource.resource_key === 'system.sql.execute'
     </router-link>
 
     <router-link
-      v-if="!isSystemSql"
+      v-if="showDebugLink"
       :to="buildPlaygroundRoute(resource)"
       class="inline-flex items-center px-2.5 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors"
       title="API 调试"
@@ -107,7 +111,7 @@ const isSystemSql = props.resource.resource_key === 'system.sql.execute'
       调试
     </router-link>
 
-    <template v-if="isSystemSql && canManageSpecial">
+    <template v-if="actionKind === 'sql_execute' && canManageSpecial">
       <button
         class="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
         title="设置 TTL"
@@ -126,7 +130,7 @@ const isSystemSql = props.resource.resource_key === 'system.sql.execute'
       </button>
     </template>
 
-    <div class="relative">
+    <div v-if="showMoreMenu" class="relative">
       <button
         ref="triggerRef"
         class="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
@@ -165,9 +169,9 @@ const isSystemSql = props.resource.resource_key === 'system.sql.execute'
           >
             导出配置 JSON
           </button>
-          <hr v-if="canDelete && resource.resource_mode !== 'SYSTEM'" class="my-1 border-gray-100" />
+          <hr v-if="canDelete && !isLockedSystemResource(resource)" class="my-1 border-gray-100" />
           <button
-            v-if="canDelete && resource.resource_mode !== 'SYSTEM'"
+            v-if="canDelete && !isLockedSystemResource(resource)"
             class="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600"
             @click="emit('delete'); menuOpen = false"
           >

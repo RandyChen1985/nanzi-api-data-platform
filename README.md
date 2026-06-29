@@ -94,7 +94,9 @@
 | 文档 | 说明 |
 |------|------|
 | [HOW_TO_INSTALL.md](HOW_TO_INSTALL.md) | 安装部署与 FAQ |
+| [architech/README.md](architech/README.md) | 架构文档索引 |
 | [architech/design/API_INTEGRATION_GUIDE.md](architech/design/API_INTEGRATION_GUIDE.md) | 对外 API 集成指南 |
+| [architech/api-schema/sql_execution_api_usage.md](architech/api-schema/sql_execution_api_usage.md) | SQL 执行 API 说明 |
 | [docs/guides/getting-started.md](docs/guides/getting-started.md) | 开发者快速入门 |
 | [architech/design/ORACLE_INTEGRATION_GUIDE.md](architech/design/ORACLE_INTEGRATION_GUIDE.md) | Oracle 数据源接入 |
 | [db-prod/README.md](db-prod/README.md) | 数据库迁移与幂等 apply 工具 |

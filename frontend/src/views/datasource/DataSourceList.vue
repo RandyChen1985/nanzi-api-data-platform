@@ -854,6 +854,6 @@ onMounted(() => {
       @cancel="confirmDialog.show = false"
     />
 
-    <Toast :show="toast.show" :message="toast.message" :type="toast.type" :key="toast.key" @close="closeToast" />
+    <Toast v-if="toast.show" :key="toast.key" :message="toast.message" :type="toast.type" @close="closeToast" />
   </div>
 </template>
