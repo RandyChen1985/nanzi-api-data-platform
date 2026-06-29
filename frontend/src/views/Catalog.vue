@@ -4,13 +4,10 @@ import { useRouter } from 'vue-router'
 import axios from '@/utils/axios'
 import { buildPlaygroundRoute } from '@/utils/playground'
 import { useToast } from '@/composables/useToast'
-import { useSimpleVirtualList } from '@/composables/useSimpleVirtualList'
 import CatalogProductRow from '@/components/catalog/CatalogProductRow.vue'
 import CatalogFeaturedCard from '@/components/catalog/CatalogFeaturedCard.vue'
 
 const { showToast } = useToast()
-const PRODUCT_ITEM_HEIGHT = 136
-const VIRTUAL_CONTAINER_HEIGHT = 560
 
 interface Product {
   id: number
@@ -206,18 +203,6 @@ const goPage = (p: number) => {
   fetchData()
 }
 
-const {
-  onScroll: onProductScroll,
-  totalHeight: productListHeight,
-  visibleItems: visibleProducts,
-  offsetY: productListOffsetY,
-  useVirtual: useProductVirtual,
-  startIndex: _productVirtualStart,
-} = useSimpleVirtualList(products, {
-  itemHeight: PRODUCT_ITEM_HEIGHT,
-  containerHeight: VIRTUAL_CONTAINER_HEIGHT,
-})
-
 onMounted(async () => {
   await fetchData()
   await fetchRedundantCount()
@@ -378,63 +363,27 @@ onMounted(async () => {
       <template v-else>暂无已发布的数据产品。管理员可在「接口管理」中发布资源到目录。</template>
     </div>
     <div v-else class="space-y-3">
-      <p class="text-sm text-gray-500">
-        共 {{ totalProducts }} 个产品
-        <span v-if="useProductVirtual" class="text-gray-400">（当前页虚拟滚动）</span>
-      </p>
+      <p class="text-sm text-gray-500">共 {{ totalProducts }} 个产品</p>
 
-      <!-- 虚拟滚动（当前页 ≥20 条时启用） -->
-      <div
-        v-if="useProductVirtual"
-        class="overflow-y-auto custom-scrollbar border border-gray-100 rounded-xl bg-gray-50/50"
-        :style="{ height: `${VIRTUAL_CONTAINER_HEIGHT}px` }"
-        @scroll="onProductScroll"
-      >
-        <div :style="{ height: `${productListHeight}px`, position: 'relative' }">
-          <div
-            :style="{ transform: `translateY(${productListOffsetY}px)` }"
-            class="space-y-3 px-1"
-          >
-            <div
-              v-for="p in visibleProducts"
-              :key="p.product_key"
-              class="bg-white rounded-xl border border-gray-100 p-5 hover:border-indigo-200 hover:shadow-sm transition-all"
-              :style="{ minHeight: `${PRODUCT_ITEM_HEIGHT - 12}px` }"
-            >
-              <CatalogProductRow
-                :product="p"
-                :view-tab="viewTab"
-                :status-label="statusLabel(p.status)"
-                :status-class="statusClass(p.status)"
-                :playground-route="playgroundRoute(p)"
-                :format-calls="formatCalls(p.calls_7d)"
-                @open="openDetail(p.product_key)"
-                @edit="router.push(`/dashboard/catalog/${p.product_key}/edit`)"
-              />
-            </div>
-          </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div
+          v-for="p in products"
+          :key="p.product_key"
+          class="bg-white rounded-xl border border-gray-100 p-5 hover:border-indigo-200 hover:shadow-sm transition-all h-full"
+        >
+          <CatalogProductRow
+            variant="card"
+            :product="p"
+            :view-tab="viewTab"
+            :status-label="statusLabel(p.status)"
+            :status-class="statusClass(p.status)"
+            :playground-route="playgroundRoute(p)"
+            :format-calls="formatCalls(p.calls_7d)"
+            @open="openDetail(p.product_key)"
+            @edit="router.push(`/dashboard/catalog/${p.product_key}/edit`)"
+          />
         </div>
       </div>
-
-      <!-- 普通列表 -->
-      <template v-else>
-      <div
-        v-for="p in products"
-        :key="p.product_key"
-        class="bg-white rounded-xl border border-gray-100 p-5 hover:border-indigo-200 hover:shadow-sm transition-all"
-      >
-        <CatalogProductRow
-          :product="p"
-          :view-tab="viewTab"
-          :status-label="statusLabel(p.status)"
-          :status-class="statusClass(p.status)"
-          :playground-route="playgroundRoute(p)"
-          :format-calls="formatCalls(p.calls_7d)"
-          @open="openDetail(p.product_key)"
-          @edit="router.push(`/dashboard/catalog/${p.product_key}/edit`)"
-        />
-      </div>
-      </template>
       <div v-if="totalPages > 1" class="flex items-center justify-center gap-3 pt-4">
         <button
           :disabled="page <= 1"
