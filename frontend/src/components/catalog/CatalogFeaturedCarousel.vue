@@ -121,7 +121,7 @@ watch(canScroll, (v) => (v ? startAuto() : stopAuto()))
 
     <div
       ref="trackRef"
-      class="featured-carousel-track flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory custom-scrollbar pb-1 -mx-1 px-1"
+      class="featured-carousel-track flex gap-3 overflow-x-auto scroll-smooth snap-x snap-mandatory featured-carousel-scroll -mx-1 px-1"
       @wheel.passive="onUserInteract"
       @touchstart.passive="onUserInteract"
     >
@@ -171,5 +171,15 @@ watch(canScroll, (v) => (v ? startAuto() : stopAuto()))
   .featured-carousel-card {
     width: calc((100% - 1.5rem) / 3);
   }
+}
+
+/* 隐藏原生滚动条（已有箭头与触摸滑动），避免 macOS 粗滚动条占位 */
+.featured-carousel-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.featured-carousel-scroll::-webkit-scrollbar {
+  display: none;
 }
 </style>
