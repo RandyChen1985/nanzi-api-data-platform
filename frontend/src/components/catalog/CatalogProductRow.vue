@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { RouteLocationRaw } from 'vue-router'
+import CatalogProductName from '@/components/catalog/CatalogProductName.vue'
 
 withDefaults(
   defineProps<{
@@ -33,16 +34,16 @@ defineEmits<{ open: []; edit: [] }>()
 <template>
   <div
     v-if="variant === 'card'"
-    class="flex h-full flex-col"
+    class="group flex h-full flex-col"
   >
     <div class="flex-1 min-w-0 cursor-pointer" @click="$emit('open')">
       <div class="flex items-center gap-2 flex-wrap">
-        <h3 class="text-base font-bold text-gray-900 line-clamp-1">{{ product.display_name }}</h3>
+        <CatalogProductName :name="product.display_name" />
+        <span v-if="product.featured" class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium shrink-0">精选</span>
         <span class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full shrink-0">{{ product.domain }}</span>
         <span v-if="viewTab === 'mine'" :class="statusClass" class="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0">
           {{ statusLabel }}
         </span>
-        <span v-if="product.featured" class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full shrink-0">精选</span>
         <span
           v-if="viewTab === 'mine' && (product.pending_requests || 0) > 0"
           class="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium shrink-0"
@@ -92,15 +93,15 @@ defineEmits<{ open: []; edit: [] }>()
       </button>
     </div>
   </div>
-  <div v-else class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+  <div v-else class="group flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
     <div class="flex-1 min-w-0 cursor-pointer" @click="$emit('open')">
       <div class="flex items-center gap-2 flex-wrap">
-        <h3 class="text-lg font-bold text-gray-900">{{ product.display_name }}</h3>
+        <CatalogProductName :name="product.display_name" size="md" />
+        <span v-if="product.featured" class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">精选</span>
         <span class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{{ product.domain }}</span>
         <span v-if="viewTab === 'mine'" :class="statusClass" class="text-[10px] px-2 py-0.5 rounded-full font-medium">
           {{ statusLabel }}
         </span>
-        <span v-if="product.featured" class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">精选</span>
         <span
           v-if="viewTab === 'mine' && (product.pending_requests || 0) > 0"
           class="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium"

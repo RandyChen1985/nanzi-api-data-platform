@@ -224,7 +224,12 @@ async def update_product(
     request_in.state.action_type = "CATALOG_PRODUCT_UPDATE"
     if not await CatalogService.can_edit_product(user, product_key):
         raise HTTPException(status_code=403, detail="无产品编辑权限")
-    ok = await CatalogService.update_product(product_key, body.model_dump(exclude_unset=True))
+    data = body.model_dump(exclude_unset=True)
+    perms = user.get("permissions", {}).get("elements", [])
+    can_manage_catalog = user.get("role") == "admin" or "element:catalog:manage" in perms
+    if not can_manage_catalog:
+        data.pop("featured", None)
+    ok = await CatalogService.update_product(product_key, data)
     if not ok:
         raise HTTPException(status_code=404, detail="产品不存在或无变更")
     return {"success": True}

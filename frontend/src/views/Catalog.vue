@@ -3,9 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from '@/utils/axios'
 import { buildPlaygroundRoute } from '@/utils/playground'
+import type { CatalogPlaygroundProduct } from '@/utils/catalog'
 import { useToast } from '@/composables/useToast'
 import CatalogProductRow from '@/components/catalog/CatalogProductRow.vue'
-import CatalogFeaturedCard from '@/components/catalog/CatalogFeaturedCard.vue'
+import CatalogFeaturedCarousel from '@/components/catalog/CatalogFeaturedCarousel.vue'
 
 const { showToast } = useToast()
 
@@ -144,7 +145,7 @@ const openDetail = (key: string) => {
   router.push(`/dashboard/catalog/${key}`)
 }
 
-const playgroundRoute = (p: Product) => {
+const playgroundRoute = (p: CatalogPlaygroundProduct) => {
   const key = p.primary_resource_key || p.product_key
   if (!key) return null
   return buildPlaygroundRoute({ resource_key: key, resource_group: p.resource_group })
@@ -341,18 +342,21 @@ onMounted(async () => {
     <!-- Featured sections -->
     <div v-if="showSections && !loading" class="space-y-6">
       <div v-if="sections.featured.length">
-        <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">精选推荐</h2>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-          <CatalogFeaturedCard
-            v-for="p in sections.featured.slice(0, 3)"
-            :key="p.product_key"
-            :product="p"
-            :playground-route="playgroundRoute(p)"
-            :format-calls="formatCalls(p.calls_7d)"
-            class="cursor-pointer"
-            @open="openDetail(p.product_key)"
-          />
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-bold text-gray-500 uppercase tracking-wider">
+            精选推荐
+            <span class="ml-1.5 font-normal normal-case text-gray-400">({{ sections.featured.length }})</span>
+          </h2>
+          <span v-if="sections.featured.length > 3" class="text-xs text-gray-400 hidden sm:inline">
+            悬停暂停 · 自动轮播
+          </span>
         </div>
+        <CatalogFeaturedCarousel
+          :products="sections.featured"
+          :playground-route="playgroundRoute"
+          :format-calls="formatCalls"
+          @open="openDetail"
+        />
       </div>
     </div>
 

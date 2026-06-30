@@ -217,6 +217,17 @@ class CatalogService:
         return int(user["user_id"])
 
     @classmethod
+    def _featured_bool(cls, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        try:
+            return int(value) == 1
+        except (TypeError, ValueError):
+            return bool(value)
+
+    @classmethod
     def _row_to_list_item(
         cls,
         row: Dict[str, Any],
@@ -239,7 +250,7 @@ class CatalogService:
             "domain": row.get("domain") or "默认域",
             "tags": tags,
             "status": row.get("status", 0),
-            "featured": bool(row.get("featured")),
+            "featured": cls._featured_bool(row.get("featured")),
             "owner_name": row.get("owner_name"),
             "owner_user_id": row.get("owner_user_id"),
             "primary_resource_key": resource_key,
@@ -471,9 +482,10 @@ class CatalogService:
     @classmethod
     async def get_product(cls, product_key: str, user: Dict) -> Optional[Dict[str, Any]]:
         admin = user.get("role") == "admin"
+        can_edit = await cls.can_edit_product(user, product_key)
         row_list = await cls._fetch_product_rows(
             product_key=product_key,
-            status=None if admin else STATUS_PUBLISHED,
+            status=None if (admin or can_edit) else STATUS_PUBLISHED,
             limit=1,
         )
         if not row_list:
@@ -553,9 +565,7 @@ class CatalogService:
             key=lambda x: x.get("published_at") or x.get("updated_at") or "",
             reverse=True,
         )[:6]
-        featured = [p for p in products if p.get("featured")][:6]
-        if not featured:
-            featured = hot[:3]
+        featured = [p for p in products if p.get("featured")]
         return {"hot": hot, "newest": newest, "featured": featured}
 
     @classmethod
@@ -848,6 +858,9 @@ class CatalogService:
         meta: Dict[str, Any] = {
             "can_edit": True,
             "is_admin": user.get("role") == "admin",
+            "can_manage_catalog": user.get("role") == "admin"
+            or "element:catalog:manage" in user.get("permissions", {}).get("elements", []),
+            "featured": cls._featured_bool(row.get("featured")),
             "can_assign_owner": False,
             "domains": [],
             "users": [],

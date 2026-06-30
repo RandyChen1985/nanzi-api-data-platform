@@ -10,6 +10,9 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import { useToast } from '@/composables/useToast'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import CatalogProductName from '@/components/catalog/CatalogProductName.vue'
+import { renderMarkdown } from '@/utils/markdown'
+import { toFeaturedBool, catalogShelfStatus } from '@/utils/catalog'
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent])
 
@@ -18,6 +21,11 @@ const { showToast } = useToast()
 const route = useRoute()
 const router = useRouter()
 const productKey = computed(() => route.params.key as string)
+const introHtml = computed(() => {
+  const text = product.value?.description || product.value?.summary
+  if (!text) return ''
+  return renderMarkdown(text)
+})
 const loading = ref(true)
 const product = ref<any>(null)
 const accessHolders = ref<any[]>([])
@@ -33,6 +41,7 @@ const showUnpublishModal = ref(false)
 const unpublishPreview = ref({ count: 0, holders: [] as any[] })
 const unpublishRevoke = ref(false)
 const unpublishing = ref(false)
+const publishing = ref(false)
 const confirmDialog = ref({
   show: false,
   title: '',
@@ -122,6 +131,8 @@ const accessBadge = computed(() => {
   return { text: '需申请权限', class: 'bg-amber-100 text-amber-700' }
 })
 
+const shelfStatusBadge = computed(() => catalogShelfStatus(product.value?.status))
+
 const playgroundRouteFor = (r: { resource_key: string; resource_group?: string }) =>
   buildPlaygroundRoute({ resource_key: r.resource_key, resource_group: r.resource_group })
 
@@ -184,11 +195,25 @@ const confirmUnpublish = async () => {
       revoke_permissions: unpublishRevoke.value,
     })
     showUnpublishModal.value = false
-    router.push('/dashboard/catalog')
+    showToast('已从目录下架', 'success')
+    await fetchProduct()
   } catch {
     showToast('下架失败，请确认您是管理员', 'error')
   } finally {
     unpublishing.value = false
+  }
+}
+
+const publishProduct = async () => {
+  publishing.value = true
+  try {
+    await axios.post(`/api/portal/catalog/products/${encodeURIComponent(productKey.value)}/publish`)
+    showToast(product.value?.status === 0 ? '已发布上架' : '已重新上架', 'success')
+    await fetchProduct()
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '上架失败', 'error')
+  } finally {
+    publishing.value = false
   }
 }
 
@@ -282,12 +307,20 @@ onUnmounted(() => {
     <div v-if="loading" class="text-center py-20 text-gray-400">加载中...</div>
     <div v-else-if="!product" class="text-center py-20 text-gray-400">产品不存在或未发布</div>
     <template v-else>
-      <div class="bg-white rounded-xl border border-gray-100 p-6">
+      <div class="group bg-white rounded-xl border border-gray-100 p-6">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div class="flex items-center gap-2 flex-wrap">
-              <h1 class="text-lg sm:text-2xl font-bold text-gray-900">{{ product.display_name }}</h1>
+              <CatalogProductName :name="product.display_name" size="lg" />
+              <span v-if="toFeaturedBool(product.featured)" class="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">精选</span>
               <span class="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">{{ product.domain }}</span>
+              <span
+                v-if="product.can_edit && shelfStatusBadge.text"
+                :class="shelfStatusBadge.class"
+                class="text-xs px-2 py-1 rounded-full font-medium"
+              >
+                {{ shelfStatusBadge.text }}
+              </span>
               <span
                 v-if="accessBadge.text"
                 :class="accessBadge.class"
@@ -364,12 +397,21 @@ onUnmounted(() => {
               {{ requesting ? '提交中...' : '申请访问' }}
             </button>
             <button
-              v-if="isAdmin"
+              v-if="isAdmin && product.status === 1"
               type="button"
               class="px-4 py-2 border border-amber-300 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-50"
               @click="openUnpublishModal"
             >
               从目录下架
+            </button>
+            <button
+              v-if="isAdmin && (product.status === 2 || product.status === 0)"
+              type="button"
+              class="px-4 py-2 border border-green-300 text-green-700 rounded-lg text-sm font-medium hover:bg-green-50 disabled:opacity-50"
+              :disabled="publishing"
+              @click="publishProduct"
+            >
+              {{ publishing ? '上架中...' : (product.status === 0 ? '发布上架' : '重新上架') }}
             </button>
           </div>
         </div>
@@ -397,9 +439,12 @@ onUnmounted(() => {
 
       <div class="bg-white rounded-xl border border-gray-100 p-6 min-h-[300px]">
         <div v-if="activeTab === 'intro'">
-          <div class="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
-            {{ product.description || product.summary || '暂无详细介绍' }}
-          </div>
+          <div
+            v-if="introHtml"
+            class="markdown-body prose prose-sm max-w-none text-gray-700 break-words"
+            v-html="introHtml"
+          />
+          <p v-else class="text-sm text-gray-500">暂无详细介绍</p>
           <div v-if="product.resources?.length" class="mt-6">
             <h3 class="text-sm font-semibold text-gray-700 mb-3">关联 API 资源</h3>
             <div class="space-y-2">

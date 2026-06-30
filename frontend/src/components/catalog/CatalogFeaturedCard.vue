@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { RouteLocationRaw } from 'vue-router'
+import CatalogProductName from '@/components/catalog/CatalogProductName.vue'
 
 defineProps<{
   product: {
@@ -7,6 +8,7 @@ defineProps<{
     display_name: string
     summary?: string
     domain: string
+    featured?: boolean
     has_access: boolean
     owner_name?: string
     data_source?: string
@@ -30,10 +32,8 @@ defineEmits<{ open: [] }>()
 
     <div class="flex items-start justify-between gap-3 pl-1">
       <div class="flex flex-wrap items-center gap-2 min-w-0">
-        <h3 class="text-base font-bold text-gray-900 truncate group-hover:text-indigo-600 transition-colors">
-          {{ product.display_name }}
-        </h3>
-        <span class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full shrink-0">精选</span>
+        <CatalogProductName :name="product.display_name" hover-highlight />
+        <span v-if="product.featured !== false" class="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full shrink-0">精选</span>
         <span class="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full shrink-0">{{ product.domain }}</span>
       </div>
       <span
