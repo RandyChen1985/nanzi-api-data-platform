@@ -23,16 +23,37 @@ const showPermissionsModal = ref(false)
 const myResources = ref<any[]>([])
 const loadingMyResources = ref(false)
 const userPermissions = ref<any>({})
-const catalogBadge = ref({ count: 0, show_requests_menu: false, can_access_requests: false, owned_products: 0 })
+const catalogBadge = ref({
+  count: 0,
+  show_requests_menu: false,
+  can_access_requests: false,
+  owned_products: 0,
+  change_notification_unread: 0,
+  show_change_notifications_menu: false,
+})
 
 const fetchCatalogBadge = async () => {
   try {
     const res = await axios.get('/api/portal/catalog/access-requests/pending-count')
-    catalogBadge.value = res.data
+    catalogBadge.value = {
+      count: res.data.count || 0,
+      show_requests_menu: !!res.data.show_requests_menu,
+      can_access_requests: !!res.data.can_access_requests,
+      owned_products: res.data.owned_products || 0,
+      change_notification_unread: res.data.change_notification_unread || 0,
+      show_change_notifications_menu: !!res.data.show_change_notifications_menu,
+    }
     sessionStorage.setItem('catalog_can_access_requests', res.data.can_access_requests ? '1' : '0')
     sessionStorage.setItem('catalog_owned_products', String(res.data.owned_products || 0))
   } catch {
-    catalogBadge.value = { count: 0, show_requests_menu: false, can_access_requests: false, owned_products: 0 }
+    catalogBadge.value = {
+      count: 0,
+      show_requests_menu: false,
+      can_access_requests: false,
+      owned_products: 0,
+      change_notification_unread: 0,
+      show_change_notifications_menu: false,
+    }
     sessionStorage.setItem('catalog_can_access_requests', '0')
     sessionStorage.setItem('catalog_owned_products', '0')
   }
@@ -373,6 +394,7 @@ const menuGroups: MenuGroup[] = [
     items: [
       { name: '产品目录', to: '/dashboard/catalog', icon: 'catalog', perm: '', mobileVisible: true, activeNames: ['Catalog', 'CatalogDetail', 'CatalogProductEdit'] },
       { name: '我的申请', to: '/dashboard/catalog-my-applications', icon: 'catalog', perm: '', mobileVisible: true, activeNames: ['CatalogMyApplications'] },
+      { name: '配置变更提醒', to: '/dashboard/catalog-change-notifications', icon: 'catalog', perm: '', mobileVisible: true, activeNames: ['CatalogChangeNotifications'] },
       { name: '资产全景', to: '/dashboard/asset-panorama', icon: 'panorama', perm: 'menu:asset-panorama', desktopOnly: true, activeNames: ['AssetPanorama'] },
       { name: '权限审批', to: '/dashboard/catalog-requests', icon: 'catalog', perm: 'menu:catalog:requests', mobileVisible: true, activeNames: ['CatalogAccessRequests'] }
     ]
@@ -457,6 +479,9 @@ const filteredMenuGroups = computed(() => {
         if (item.to === '/dashboard/catalog-requests') {
           return catalogBadge.value.can_access_requests
         }
+        if (item.to === '/dashboard/catalog-change-notifications') {
+          return catalogBadge.value.show_change_notifications_menu
+        }
         if (isMobile.value && item.mobileVisible) {
           return true
         }
@@ -467,7 +492,12 @@ const filteredMenuGroups = computed(() => {
       })
       .map(item => ({
         ...item,
-        badge: item.to === '/dashboard/catalog-requests' ? catalogBadge.value.count : undefined,
+        badge:
+          item.to === '/dashboard/catalog-requests'
+            ? catalogBadge.value.count
+            : item.to === '/dashboard/catalog-change-notifications'
+              ? catalogBadge.value.change_notification_unread
+              : undefined,
       }))
   })).filter(group => group.items.length > 0);
 });

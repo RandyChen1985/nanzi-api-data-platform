@@ -184,12 +184,29 @@ class MetaService:
         await cls.invalidate_cache(resource_key)
         updated = await cls._fetch_from_db(resource_key)
         if updated:
+            version_id = None
             try:
-                await ResourceVersionService.record_version(
+                version_id = await ResourceVersionService.record_version(
                     updated, action_type, operator, change_summary
                 )
             except Exception as e:
                 logger.warning("Failed to record resource update version: %s", e)
+            if version_id and action_type in ("UPDATE", "ROLLBACK"):
+                try:
+                    from app.services.catalog_change_notification_service import (
+                        CatalogChangeNotificationService,
+                    )
+
+                    await CatalogChangeNotificationService.notify_on_resource_change(
+                        resource_key=resource_key,
+                        resource_name=updated.resource_name,
+                        version_id=version_id,
+                        action_type=action_type,
+                        change_summary=change_summary,
+                        operator=operator,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to notify catalog resource change: %s", e)
         return updated
 
     @classmethod

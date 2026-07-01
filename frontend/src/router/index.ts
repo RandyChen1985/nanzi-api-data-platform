@@ -125,6 +125,11 @@ const router = createRouter({
           component: () => import('../views/CatalogMyApplications.vue'),
         },
         {
+          path: 'catalog-change-notifications',
+          name: 'CatalogChangeNotifications',
+          component: () => import('../views/CatalogChangeNotifications.vue'),
+        },
+        {
           path: 'catalog-redundant',
           name: 'CatalogRedundant',
           component: () => import('../views/CatalogRedundant.vue'),

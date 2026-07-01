@@ -148,11 +148,15 @@ class BatchAssignOwnerResult(BaseModel):
 class CatalogSettingsResponse(BaseModel):
     default_owner_strategy: str
     group_owner_map: Dict[str, int] = Field(default_factory=dict)
+    notify_resource_change_enabled: bool = True
+    notify_resource_change_webhook_url: str = ""
 
 
 class CatalogSettingsUpdate(BaseModel):
     default_owner_strategy: str = "publisher"
     group_owner_map: Dict[str, int] = Field(default_factory=dict)
+    notify_resource_change_enabled: Optional[bool] = None
+    notify_resource_change_webhook_url: Optional[str] = None
 
 
 class ProductResourceLink(BaseModel):

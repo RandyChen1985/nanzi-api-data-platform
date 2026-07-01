@@ -29,8 +29,13 @@ from app.schemas.catalog import (
     ArchiveRedundantResult,
     SyncAccessResult,
 )
+from app.schemas.catalog_change_notification import (
+    CatalogChangeNotificationListResponse,
+    CatalogChangeNotificationMarkReadRequest,
+)
 from app.schemas.resource_version import ProductLinkedResourceVersionsResponse
 from app.services.catalog_service import CatalogService, STATUS_DRAFT, REQUEST_PENDING
+from app.services.catalog_change_notification_service import CatalogChangeNotificationService
 from app.api.portal.endpoints.dashboard import is_admin
 
 router = APIRouter()
@@ -289,6 +294,8 @@ async def update_catalog_settings(
         await CatalogService.update_catalog_settings(
             default_owner_strategy=body.default_owner_strategy,
             group_owner_map=body.group_owner_map,
+            notify_resource_change_enabled=body.notify_resource_change_enabled,
+            notify_resource_change_webhook_url=body.notify_resource_change_webhook_url,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -457,11 +464,14 @@ async def pending_request_count(user: dict = Depends(require_api_key)):
     can_access = CatalogService.can_access_catalog_requests(
         user, owned_products=summary["owned_products"]
     )
+    change_unread = await CatalogChangeNotificationService.count_unread(int(user["user_id"]))
     return {
         "count": count,
         "owned_products": summary["owned_products"],
         "show_requests_menu": can_access,
         "can_access_requests": can_access,
+        "change_notification_unread": change_unread,
+        "show_change_notifications_menu": summary["owned_products"] > 0,
     }
 
 
@@ -526,6 +536,40 @@ async def revoke_access_by_request(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"success": True, "removed": removed}
+
+
+@router.get("/change-notifications", response_model=CatalogChangeNotificationListResponse)
+async def list_change_notifications(
+    unread_only: bool = Query(False),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_api_key),
+):
+    summary = await CatalogService.get_mine_summary(user)
+    if summary["owned_products"] <= 0 and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="您不是任何数据产品的负责人")
+    return await CatalogChangeNotificationService.list_notifications(
+        int(user["user_id"]),
+        unread_only=unread_only,
+        page=page,
+        size=size,
+    )
+
+
+@router.post("/change-notifications/mark-read")
+async def mark_change_notifications_read(
+    body: CatalogChangeNotificationMarkReadRequest,
+    user: dict = Depends(require_api_key),
+):
+    if not body.mark_all and not body.ids:
+        raise HTTPException(status_code=400, detail="请指定 ids 或 mark_all")
+    affected = await CatalogChangeNotificationService.mark_read(
+        int(user["user_id"]),
+        ids=body.ids,
+        mark_all=body.mark_all,
+    )
+    unread = await CatalogChangeNotificationService.count_unread(int(user["user_id"]))
+    return {"success": True, "marked": affected, "unread": unread}
 
 
 @router.get("/panorama", response_model=PanoramaResponse)

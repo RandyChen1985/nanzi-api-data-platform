@@ -165,10 +165,14 @@ class CatalogService:
 
     @classmethod
     async def get_catalog_settings(cls) -> Dict[str, Any]:
+        from app.services.catalog_change_notification_service import CatalogChangeNotificationService
+
         cfg = await cls._get_catalog_owner_config()
+        notify_cfg = await CatalogChangeNotificationService.get_notify_settings()
         return {
             "default_owner_strategy": cfg["strategy"],
             "group_owner_map": cfg["group_map"],
+            **notify_cfg,
         }
 
     @classmethod
@@ -177,6 +181,8 @@ class CatalogService:
         *,
         default_owner_strategy: str,
         group_owner_map: Dict[str, int],
+        notify_resource_change_enabled: Optional[bool] = None,
+        notify_resource_change_webhook_url: Optional[str] = None,
     ) -> None:
         strategy = (default_owner_strategy or "publisher").strip()
         if strategy not in ("publisher", "group_owner", "none"):
@@ -205,6 +211,19 @@ class CatalogService:
                     (map_json, "catalog.group_owner_map"),
                 )
                 await conn.commit()
+
+        if notify_resource_change_enabled is not None or notify_resource_change_webhook_url is not None:
+            from app.services.catalog_change_notification_service import CatalogChangeNotificationService
+
+            current = await CatalogChangeNotificationService.get_notify_settings()
+            await CatalogChangeNotificationService.update_notify_settings(
+                enabled=notify_resource_change_enabled
+                if notify_resource_change_enabled is not None
+                else current["notify_resource_change_enabled"],
+                webhook_url=notify_resource_change_webhook_url
+                if notify_resource_change_webhook_url is not None
+                else current["notify_resource_change_webhook_url"],
+            )
 
     @classmethod
     async def _resolve_default_owner(cls, user: Dict, resource_group: str) -> Optional[int]:
@@ -1218,8 +1237,22 @@ class CatalogService:
                     """,
                     (product["id"], product_key, user_id, user["user_name"], message, REQUEST_PENDING),
                 )
+                request_id = cursor.lastrowid
                 await conn.commit()
-                return {"id": cursor.lastrowid, "status": "pending"}
+
+        try:
+            from app.services.dingtalk_notification_service import DingTalkNotificationService
+
+            await DingTalkNotificationService.notify_access_request_created(
+                request_id=int(request_id),
+                product_key=product_key,
+                product_name=product.get("display_name") or product_key,
+                applicant_name=user["user_name"],
+                message=message,
+            )
+        except Exception as e:
+            logger.warning("Failed to send DingTalk access request notification: %s", e)
+        return {"id": request_id, "status": "pending"}
 
     @classmethod
     async def list_access_requests(
@@ -1336,7 +1369,8 @@ class CatalogService:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(
                     """
-                    SELECT r.*, p.owner_user_id FROM data_product_access_requests r
+                    SELECT r.*, p.owner_user_id, p.display_name AS product_name
+                    FROM data_product_access_requests r
                     JOIN data_products p ON p.id = r.product_id
                     WHERE r.id = %s AND r.status = %s
                     """,
@@ -1370,6 +1404,20 @@ class CatalogService:
                 await conn.commit()
 
         await PermissionService.invalidate_user_cache(req["user_id"])
+        try:
+            from app.services.dingtalk_notification_service import DingTalkNotificationService
+
+            await DingTalkNotificationService.notify_access_request_handled(
+                request_id=request_id,
+                product_key=req["product_key"],
+                product_name=req.get("product_name") or req["product_key"],
+                applicant_name=req["user_name"],
+                approved=True,
+                handler_name=handler["user_name"],
+                remark=remark,
+            )
+        except Exception as e:
+            logger.warning("Failed to send DingTalk approval notification: %s", e)
         return True
 
     @classmethod
@@ -1378,7 +1426,8 @@ class CatalogService:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(
                     """
-                    SELECT r.*, p.owner_user_id FROM data_product_access_requests r
+                    SELECT r.*, p.owner_user_id, p.display_name AS product_name
+                    FROM data_product_access_requests r
                     JOIN data_products p ON p.id = r.product_id
                     WHERE r.id = %s AND r.status = %s
                     """,
@@ -1400,6 +1449,20 @@ class CatalogService:
                     (REQUEST_REJECTED, int(handler["user_id"]), handler["user_name"], remark, request_id),
                 )
                 await conn.commit()
+        try:
+            from app.services.dingtalk_notification_service import DingTalkNotificationService
+
+            await DingTalkNotificationService.notify_access_request_handled(
+                request_id=request_id,
+                product_key=req["product_key"],
+                product_name=req.get("product_name") or req["product_key"],
+                applicant_name=req["user_name"],
+                approved=False,
+                handler_name=handler["user_name"],
+                remark=remark,
+            )
+        except Exception as e:
+            logger.warning("Failed to send DingTalk rejection notification: %s", e)
         return True
 
     @classmethod

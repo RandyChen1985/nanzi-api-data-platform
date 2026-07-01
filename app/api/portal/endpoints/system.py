@@ -4,6 +4,9 @@ from app.core.dependencies import require_admin, require_api_key, require_permis
 from app.core.database import get_db_connection
 from app.services.ai_service import AIService
 from app.services.vector_service import VectorService
+from app.services.platform_settings_service import PlatformSettingsService
+from app.services.dingtalk_notification_service import DingTalkNotificationService
+from app.schemas.platform_settings import PlatformSettingsResponse, PlatformSettingsUpdate
 from app.core.redis import get_redis
 from pydantic import BaseModel
 import logging
@@ -54,6 +57,28 @@ async def update_system_config(payload: Dict[str, str], user=Depends(require_per
                     logger.warning(f"Failed to invalidate cache for {key}: {e}")
                     
     return {"message": "Configuration updated successfully"}
+
+
+@router.get("/platform-settings", response_model=PlatformSettingsResponse)
+async def get_platform_settings(user=Depends(require_permission("element:config:save"))):
+    """平台业务配置：数据产品目录、钉钉通知等"""
+    return await PlatformSettingsService.get_settings()
+
+
+@router.put("/platform-settings", response_model=PlatformSettingsResponse)
+async def update_platform_settings(
+    body: PlatformSettingsUpdate,
+    user=Depends(require_permission("element:config:save")),
+):
+    return await PlatformSettingsService.update_settings(body)
+
+
+@router.post("/platform-settings/dingtalk/test")
+async def test_dingtalk_platform_settings(user=Depends(require_permission("element:config:save"))):
+    ok = await DingTalkNotificationService.send_test_message()
+    if not ok:
+        raise HTTPException(status_code=400, detail="钉钉通知发送失败，请检查开关、Webhook 与加签密钥")
+    return {"success": True}
 
 # --- 2. AI Config Endpoints ---
 

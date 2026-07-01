@@ -299,6 +299,8 @@ onMounted(() => {
     const u = localStorage.getItem('user_info')
     if (u) isAdmin.value = JSON.parse(u).role === 'admin'
   } catch { /* ignore */ }
+  const tab = route.query.tab
+  if (tab === 'changes') activeTab.value = 'changes'
   fetchProduct()
 })
 
