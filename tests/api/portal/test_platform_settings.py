@@ -40,6 +40,7 @@ async def test_platform_settings_get_and_update(client: AsyncClient, admin_api_k
     body = res.json()
     assert "catalog" in body
     assert "dingtalk" in body
+    assert "mcp" in body
     assert "default_owner_strategy" in body["catalog"]
 
     update = await client.put(
@@ -101,6 +102,36 @@ async def test_dingtalk_send_markdown(client: AsyncClient, admin_api_key: str):
             },
         )
         assert test_api.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_mcp_test_disabled(client: AsyncClient, admin_api_key: str):
+    headers = {"X-API-Key": admin_api_key}
+    res = await client.post(
+        "/api/portal/system/platform-settings/mcp/test",
+        headers=headers,
+        json={"enabled": False},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert any(c["name"] == "服务开关" and c["ok"] is False for c in body["checks"])
+
+
+@pytest.mark.asyncio
+async def test_mcp_test_enabled(client: AsyncClient, admin_api_key: str):
+    headers = {"X-API-Key": admin_api_key}
+    res = await client.post(
+        "/api/portal/system/platform-settings/mcp/test",
+        headers=headers,
+        json={"enabled": True},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert "checks" in body
+    assert "yunshu_list_resources" in body.get("tools", [])
+    sdk_check = next(c for c in body["checks"] if c["name"] == "MCP SDK")
+    assert sdk_check["ok"] is True
 
 
 @pytest.mark.asyncio

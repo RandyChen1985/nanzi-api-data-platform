@@ -74,13 +74,17 @@
 | `/api/portal/catalog/products/{key}/sync-access` | `test_catalog.py` | 审批通过后补写资源权限、刷新缓存 | ✅ 通过 | 2026-06-29 |
 | `/api/portal/catalog/products/{key}/linked-resource-versions` | `test_catalog.py` | 产品编辑页关联 API 最近版本与变更摘要 | ✅ 通过 | 2026-07-01 |
 | `/api/portal/catalog/change-notifications` | `test_catalog_change_notifications.py` | 资源变更通知产品负责人、未读计数与已读 | ✅ 通过 | 2026-07-01 |
-| `/api/portal/system/platform-settings` | `test_platform_settings.py` | 系统配置（目录/钉钉）与审批钉钉推送 | ✅ 通过 | 2026-07-01 |
+| `/api/portal/system/platform-settings` | `test_platform_settings.py` | 系统配置（目录/钉钉/MCP）、MCP 连通性测试 | ✅ 通过 | 2026-07-01 |
+| `/api/v1/resources` | `test_resources_list.py` | 可访问资源列表（MCP/Agent 发现） | ✅ 通过 | 2026-07-01 |
+| `/api/v1/mcp/status` | `test_resources_list.py` | MCP 启用状态探针 | ✅ 通过 | 2026-07-01 |
+| `yunshu_mcp` (stdio/SSE) | 手动 | MCP Server 工具与系统配置开关 | ⏳ 待验 | 2026-07-01 |
 | `/api/portal/catalog/settings` | `test_catalog.py` | 负责人策略配置读写 | ✅ 通过 | 2026-06-29 |
 | `db-prod/V26-data-product-catalog-module.sql` | 手动 | 数据产品目录全模块 DDL（含权限申请、collation、配置种子） | ⏳ 待验 | 2026-06-29 |
 | `db-prod/V27-revoke-catalog-requests-menu-default-grant.sql` | 手动 | 撤销 menu:catalog:requests 全员默认授予 | ⏳ 待验 | 2026-06-29 |
 | `db-prod/V28-resource-version-history.sql` | `test_resource_versions.py` | 资源配置版本历史表与回滚能力 | ✅ 通过 | 2026-07-01 |
 | `db-prod/V29-catalog-change-notifications.sql` | `test_catalog_change_notifications.py` | 目录/API 变更站内通知与 Webhook 配置 | ✅ 通过 | 2026-07-01 |
 | `db-prod/V30-dingtalk-approval-notify.sql` | `test_platform_settings.py` | 钉钉审批通知配置项 | ✅ 通过 | 2026-07-01 |
+| `db-prod/V31-mcp-server-config.sql` | `test_resources_list.py` | MCP Server 开关与 instructions 配置 | ⏳ 待验 | 2026-07-01 |
 
 | `/api/portal/system/logs` | `test_system_logs.py`    | 系统配置日志、维护日志查询              | ✅ 通过 | 2026-01-27   |
 

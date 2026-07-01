@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from typing import List, Dict, Any, Optional
 from app.core.dependencies import require_admin, require_api_key, require_permission
 from app.core.database import get_db_connection
@@ -6,7 +6,14 @@ from app.services.ai_service import AIService
 from app.services.vector_service import VectorService
 from app.services.platform_settings_service import PlatformSettingsService
 from app.services.dingtalk_notification_service import DingTalkNotificationService
-from app.schemas.platform_settings import PlatformSettingsResponse, PlatformSettingsUpdate, DingTalkPlatformSettings
+from app.schemas.platform_settings import (
+    PlatformSettingsResponse,
+    PlatformSettingsUpdate,
+    DingTalkPlatformSettings,
+    McpPlatformSettingsUpdate,
+    McpTestResponse,
+)
+from app.services.mcp_test_service import McpTestService
 from app.core.redis import get_redis
 from pydantic import BaseModel
 import logging
@@ -60,17 +67,24 @@ async def update_system_config(payload: Dict[str, str], user=Depends(require_per
 
 
 @router.get("/platform-settings", response_model=PlatformSettingsResponse)
-async def get_platform_settings(user=Depends(require_permission("element:config:save"))):
+async def get_platform_settings(
+    request: Request,
+    user=Depends(require_permission("element:config:save")),
+):
     """平台业务配置：数据产品目录、钉钉通知等"""
-    return await PlatformSettingsService.get_settings()
+    return await PlatformSettingsService.get_settings(str(request.base_url).rstrip("/"))
 
 
 @router.put("/platform-settings", response_model=PlatformSettingsResponse)
 async def update_platform_settings(
+    request: Request,
     body: PlatformSettingsUpdate,
     user=Depends(require_permission("element:config:save")),
 ):
-    return await PlatformSettingsService.update_settings(body)
+    return await PlatformSettingsService.update_settings(
+        body,
+        request_base_url=str(request.base_url).rstrip("/"),
+    )
 
 
 @router.post("/platform-settings/dingtalk/test")
@@ -83,6 +97,19 @@ async def test_dingtalk_platform_settings(
     if not ok:
         raise HTTPException(status_code=400, detail=detail or "钉钉通知发送失败")
     return {"success": True}
+
+
+@router.post("/platform-settings/mcp/test", response_model=McpTestResponse)
+async def test_mcp_platform_settings(
+    request: Request,
+    body: Optional[McpPlatformSettingsUpdate] = Body(None),
+    user=Depends(require_permission("element:config:save")),
+):
+    """探测 MCP SDK、状态探针与 SSE 端点（支持未保存的表单值）。"""
+    override = body.model_dump() if body else None
+    local_base = str(request.base_url).rstrip("/")
+    _ok, result = await McpTestService.run_test(override, local_base_url=local_base)
+    return result
 
 # --- 2. AI Config Endpoints ---
 

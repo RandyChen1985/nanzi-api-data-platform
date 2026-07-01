@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from '@/utils/axios'
 import { useToast } from '../composables/useToast'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
@@ -39,7 +39,7 @@ import {
   ShieldCheckIcon
 } from '@heroicons/vue/24/outline'
 const activeTab = ref<'monitor' | 'ratelimit' | 'diagnostic' | 'pools' | 'logs' | 'ai' | 'masking' | 'platform'>('monitor')
-const platformSection = ref<'catalog' | 'dingtalk'>('catalog')
+const platformSection = ref<'catalog' | 'dingtalk' | 'mcp'>('catalog')
 
 const settingsTabs = [
   { id: 'monitor' as const, label: '系统监控' },
@@ -55,6 +55,7 @@ const settingsTabs = [
 const platformSections = [
   { id: 'catalog' as const, label: '数据产品目录' },
   { id: 'dingtalk' as const, label: '钉钉通知' },
+  { id: 'mcp' as const, label: 'MCP 服务' },
 ]
 
 type SettingsTabId = (typeof settingsTabs)[number]['id']
@@ -89,6 +90,8 @@ const loading = ref<{ [key: string]: boolean }> ({
   platform_save: false,
   dingtalk_save: false,
   dingtalk_test: false,
+  mcp_save: false,
+  mcp_test: false,
 })
 
 // Data Masking State
@@ -122,6 +125,24 @@ const dingtalkConfig = ref({
   notify_on_request: true,
   notify_on_result: true,
 })
+const mcpConfig = ref({
+  enabled: false,
+  instructions: '',
+  sse_path: '/mcp/sse',
+  sse_url: '',
+  stdio_command: 'python -m yunshu_mcp',
+})
+interface McpTestCheck {
+  name: string
+  ok: boolean
+  detail: string
+}
+const mcpTestResult = ref<{
+  success: boolean
+  checks: McpTestCheck[]
+  tools: string[]
+  sse_url: string
+} | null>(null)
 const catalogUsers = ref<{ id: number; user_name: string; remark?: string }[]>([])
 
 const applyPlatformSettings = (data: any) => {
@@ -141,6 +162,13 @@ const applyPlatformSettings = (data: any) => {
   dingtalkConfig.value.secret = dingtalk.secret || ''
   dingtalkConfig.value.notify_on_request = dingtalk.notify_on_request !== false
   dingtalkConfig.value.notify_on_result = dingtalk.notify_on_result !== false
+
+  const mcp = data.mcp || {}
+  mcpConfig.value.enabled = !!mcp.enabled
+  mcpConfig.value.instructions = mcp.instructions || ''
+  mcpConfig.value.sse_path = mcp.sse_path || '/mcp/sse'
+  mcpConfig.value.sse_url = mcp.sse_url || ''
+  mcpConfig.value.stdio_command = mcp.stdio_command || 'python -m yunshu_mcp'
 }
 
 const fetchPlatformSettings = async () => {
@@ -210,6 +238,85 @@ const saveDingtalkPlatformConfig = async () => {
     showToast(e.response?.data?.detail || '保存失败', 'error')
   } finally {
     loading.value.dingtalk_save = false
+  }
+}
+
+const saveMcpPlatformConfig = async () => {
+  loading.value.mcp_save = true
+  try {
+    const res = await axios.put('/api/portal/system/platform-settings', {
+      mcp: {
+        enabled: mcpConfig.value.enabled,
+        instructions: mcpConfig.value.instructions,
+      },
+    })
+    applyPlatformSettings(res.data)
+    showToast('MCP 配置已保存', 'success')
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '保存失败', 'error')
+  } finally {
+    loading.value.mcp_save = false
+  }
+}
+
+const testMcpServer = async () => {
+  loading.value.mcp_test = true
+  mcpTestResult.value = null
+  try {
+    const res = await axios.post('/api/portal/system/platform-settings/mcp/test', {
+      enabled: mcpConfig.value.enabled,
+      instructions: mcpConfig.value.instructions,
+    })
+    mcpTestResult.value = res.data
+    if (res.data.success) {
+      showToast('MCP 连通性测试通过', 'success')
+    } else {
+      showToast('MCP 测试未全部通过，请查看下方明细', 'error')
+    }
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '测试请求失败', 'error')
+  } finally {
+    loading.value.mcp_test = false
+  }
+}
+
+const copyMcpSseUrl = async () => {
+  const url = mcpConfig.value.sse_url
+  if (!url) {
+    showToast('暂无 SSE 地址', 'error')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    showToast('已复制 SSE 地址', 'success')
+  } catch {
+    showToast('复制失败，请手动选择复制', 'error')
+  }
+}
+
+const mcpSseCursorExample = computed(() =>
+  JSON.stringify(
+    {
+      mcpServers: {
+        yunshu: {
+          url: mcpConfig.value.sse_url || 'https://data.example.com/mcp/sse',
+          headers: {
+            'X-API-Key': '你的个人 API Key',
+          },
+        },
+      },
+    },
+    null,
+    2,
+  ),
+)
+
+const copyMcpSseCursorConfig = async () => {
+  try {
+    await navigator.clipboard.writeText(mcpSseCursorExample.value)
+    showToast('已复制 Cursor SSE 配置示例', 'success')
+  } catch {
+    showToast('复制失败，请手动选择复制', 'error')
   }
 }
 
@@ -1223,6 +1330,115 @@ const formatDateTime = (val: string) => {
                 @click="saveDingtalkPlatformConfig"
               >
                 {{ loading.dingtalk_save ? '保存中...' : '保存钉钉配置' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- MCP 服务 -->
+          <div v-show="platformSection === 'mcp'" class="space-y-6">
+            <div>
+              <h4 class="text-base font-semibold text-gray-900">MCP Server</h4>
+              <p class="text-sm text-gray-500 mt-1">
+                开关与 Agent 提示在下方维护；SSE 地址自动生成。客户端使用个人 API Key，与调用 Data API 相同（SSE 用 headers，stdio 用 env）。
+              </p>
+            </div>
+
+            <label class="inline-flex items-center gap-3 cursor-pointer">
+              <input
+                v-model="mcpConfig.enabled"
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span class="text-sm font-medium text-gray-800">启用 MCP Server</span>
+            </label>
+
+            <fieldset :disabled="!mcpConfig.enabled" class="space-y-4 border border-gray-100 rounded-xl p-4 disabled:opacity-60">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Agent 提示文案 (instructions)</label>
+                <textarea
+                  v-model="mcpConfig.instructions"
+                  rows="4"
+                  class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="描述 MCP 工具使用顺序与注意事项..."
+                />
+              </div>
+
+              <div class="bg-gray-50 rounded-lg p-4 text-xs text-gray-600 space-y-2">
+                <div v-if="mcpConfig.sse_url" class="flex items-start gap-2">
+                  <span class="text-gray-400 shrink-0">SSE 完整地址：</span>
+                  <code class="font-mono text-indigo-700 break-all flex-1">{{ mcpConfig.sse_url }}</code>
+                  <button
+                    type="button"
+                    class="shrink-0 px-2 py-1 text-xs rounded border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50"
+                    title="复制 SSE 地址"
+                    @click="copyMcpSseUrl"
+                  >
+                    复制
+                  </button>
+                </div>
+                <p v-else class="text-gray-400">SSE 地址将在加载配置后根据当前访问地址生成</p>
+                <div class="pt-2 border-t border-gray-200">
+                  <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-gray-400">Cursor SSE 配置示例</span>
+                    <button
+                      type="button"
+                      class="shrink-0 px-2 py-1 text-xs rounded border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50"
+                      @click="copyMcpSseCursorConfig"
+                    >
+                      复制配置
+                    </button>
+                  </div>
+                  <pre class="bg-white rounded p-2 overflow-x-auto text-[11px] leading-relaxed font-mono text-gray-700">{{ mcpSseCursorExample }}</pre>
+                </div>
+                <p><span class="text-gray-400">stdio 启动：</span><code class="font-mono">{{ mcpConfig.stdio_command }}</code></p>
+                <p class="text-gray-500 pt-2 leading-relaxed">
+                  远程客户端推荐 SSE：复制上方配置，将 <code class="bg-white px-1 rounded">X-API-Key</code> 换成个人 Key（与门户「我的 API Key」相同）。
+                  本机开发可用 stdio，在 <code class="bg-white px-1 rounded">env</code> 中配置 <code class="bg-white px-1 rounded">YUNSHU_API_KEY</code> 与 <code class="bg-white px-1 rounded">YUNSHU_BASE_URL</code>。
+                </p>
+              </div>
+            </fieldset>
+
+            <div
+              v-if="mcpTestResult"
+              class="rounded-xl border p-4 space-y-2"
+              :class="mcpTestResult.success ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'"
+            >
+              <p class="text-sm font-medium" :class="mcpTestResult.success ? 'text-green-800' : 'text-amber-800'">
+                {{ mcpTestResult.success ? '测试通过' : '部分检查未通过' }}
+                <span v-if="mcpTestResult.tools.length" class="font-normal text-gray-600">
+                  — 工具：{{ mcpTestResult.tools.join('、') }}
+                </span>
+              </p>
+              <ul class="space-y-1">
+                <li
+                  v-for="(item, idx) in mcpTestResult.checks"
+                  :key="idx"
+                  class="text-xs flex items-start gap-2"
+                >
+                  <span :class="item.ok ? 'text-green-600' : 'text-red-600'">{{ item.ok ? '✓' : '✗' }}</span>
+                  <span class="text-gray-700">
+                    <span class="font-medium">{{ item.name }}：</span>{{ item.detail }}
+                  </span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="flex flex-wrap gap-3">
+              <button
+                type="button"
+                :disabled="loading.mcp_test || loading.mcp_save || !mcpConfig.enabled"
+                class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                @click="testMcpServer"
+              >
+                {{ loading.mcp_test ? '测试中...' : '连通性测试' }}
+              </button>
+              <button
+                type="button"
+                :disabled="loading.mcp_save || loading.mcp_test"
+                class="inline-flex items-center px-6 py-2 text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+                @click="saveMcpPlatformConfig"
+              >
+                {{ loading.mcp_save ? '保存中...' : '保存 MCP 配置' }}
               </button>
             </div>
           </div>

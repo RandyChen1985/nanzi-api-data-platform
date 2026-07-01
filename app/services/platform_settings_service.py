@@ -3,25 +3,34 @@ from typing import Any, Dict, Optional
 from app.schemas.platform_settings import (
     CatalogPlatformSettings,
     DingTalkPlatformSettings,
+    McpPlatformSettings,
     PlatformSettingsResponse,
     PlatformSettingsUpdate,
 )
 from app.services.catalog_service import CatalogService
 from app.services.dingtalk_notification_service import DingTalkNotificationService
+from app.services.mcp_settings_service import McpSettingsService
 
 
 class PlatformSettingsService:
     @classmethod
-    async def get_settings(cls) -> PlatformSettingsResponse:
+    async def get_settings(cls, request_base_url: str = "") -> PlatformSettingsResponse:
         catalog_raw = await CatalogService.get_catalog_settings()
         dingtalk_raw = await DingTalkNotificationService.get_settings()
+        mcp_raw = await McpSettingsService.get_settings(request_base_url)
         return PlatformSettingsResponse(
             catalog=CatalogPlatformSettings(**catalog_raw),
             dingtalk=DingTalkPlatformSettings(**dingtalk_raw),
+            mcp=McpPlatformSettings(**mcp_raw),
         )
 
     @classmethod
-    async def update_settings(cls, body: PlatformSettingsUpdate) -> PlatformSettingsResponse:
+    async def update_settings(
+        cls,
+        body: PlatformSettingsUpdate,
+        *,
+        request_base_url: str = "",
+    ) -> PlatformSettingsResponse:
         if body.catalog is not None:
             await CatalogService.update_catalog_settings(
                 default_owner_strategy=body.catalog.default_owner_strategy,
@@ -37,7 +46,12 @@ class PlatformSettingsService:
                 notify_on_request=body.dingtalk.notify_on_request,
                 notify_on_result=body.dingtalk.notify_on_result,
             )
-        return await cls.get_settings()
+        if body.mcp is not None:
+            await McpSettingsService.update_settings(
+                enabled=body.mcp.enabled,
+                instructions=body.mcp.instructions,
+            )
+        return await cls.get_settings(request_base_url)
 
     @classmethod
     async def get_catalog_dict(cls) -> Dict[str, Any]:

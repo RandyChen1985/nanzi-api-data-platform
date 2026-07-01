@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError # Import Validation Error
 from contextlib import asynccontextmanager
 from typing import Optional
-from app.api.v1.endpoints import query, universal, sql_execution, meta
+from app.api.v1.endpoints import query, universal, sql_execution, meta, resources
 from app.api.portal.api import portal_router
 from app.core.config import settings
 from app.core import database, redis
@@ -17,6 +17,7 @@ from app.core.openapi import custom_openapi, tags_metadata # Import OpenAPI Logi
 from asynch.errors import InterfaceError
 from aiomysql import OperationalError
 from app.jobs.scheduler import start_scheduler, shutdown_scheduler
+from app.mcp_integration import mount_mcp_server, wrap_mcp_gate
 import logging
 import datetime
 import uuid
@@ -246,7 +247,16 @@ app.include_router(
     tags=["元数据检索"],
     responses=COMMON_ERROR_RESPONSES
 )
+app.include_router(
+    resources.router,
+    prefix="/api/v1",
+    tags=["资源发现"],
+    responses=COMMON_ERROR_RESPONSES,
+)
 app.include_router(portal_router, prefix="/api/portal", include_in_schema=False)  # 不在文档中显示
+
+wrap_mcp_gate(app)
+mount_mcp_server(app)
 
 @app.get("/health")
 async def health_check():
@@ -332,7 +342,7 @@ if os.path.exists(assets_path):
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
     # Skip API routes (handled above)
-    if full_path.startswith("api"):
+    if full_path.startswith("api") or full_path.startswith("mcp"):
          raise HTTPException(status_code=404, detail="API Not Found")
 
     # Check if file exists in frontend_dist (for favicon.ico, favicon.png, etc.)
