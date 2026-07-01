@@ -88,7 +88,7 @@ const handleLogin = async () => {
 
       const toastMsg = activeTab.value === 'sso' ? 'SSO 登录成功' : '登录成功'
       showToast(toastMsg, 'success')
-      router.push('/dashboard')
+      router.push('/dashboard/catalog')
     }
   } catch (e: any) {
     console.error(e)

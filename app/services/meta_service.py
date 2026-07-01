@@ -5,6 +5,7 @@ from datetime import datetime
 from app.core.database import get_db_connection
 from app.core import redis
 from app.schemas.resource import ResourceCreate, ResourceUpdate, ResourceResponse
+from app.services.resource_version_service import ResourceVersionService, SNAPSHOT_FIELDS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -126,7 +127,11 @@ class MetaService:
                 return [cls._map_row_to_model(row) for row in await cursor.fetchall()]
 
     @classmethod
-    async def create_resource(cls, resource: ResourceCreate) -> ResourceResponse:
+    async def create_resource(
+        cls,
+        resource: ResourceCreate,
+        operator: Optional[Dict[str, Any]] = None,
+    ) -> ResourceResponse:
         cls._assert_assignable_resource_group(resource.resource_group)
         async with get_db_connection() as conn:
             async with conn.cursor() as cursor:
@@ -135,12 +140,36 @@ class MetaService:
                     (resource.resource_key, resource.resource_name, resource.resource_group, resource.data_source, resource.resource_mode, resource.table_name, resource.custom_sql, json.dumps([f.dict() for f in resource.fields_config]), json.dumps([f.dict() for f in resource.allowed_filters]), resource.default_sort, resource.status, resource.remarks, resource.cache_ttl)
                 )
                 await conn.commit()
-                return await cls._fetch_from_db(resource.resource_key)
+        created = await cls._fetch_from_db(resource.resource_key)
+        if created:
+            try:
+                await ResourceVersionService.record_version(
+                    created, "CREATE", operator, "初始创建"
+                )
+            except Exception as e:
+                logger.warning("Failed to record resource create version: %s", e)
+        return created
 
     @classmethod
-    async def update_resource(cls, resource_key: str, update_data: ResourceUpdate) -> Optional[ResourceResponse]:
+    async def update_resource(
+        cls,
+        resource_key: str,
+        update_data: ResourceUpdate,
+        operator: Optional[Dict[str, Any]] = None,
+        action_type: str = "UPDATE",
+        change_summary: Optional[str] = None,
+    ) -> Optional[ResourceResponse]:
         update_dict = update_data.dict(exclude_unset=True)
-        if not update_dict: return await cls.get_config(resource_key)
+        if not update_dict:
+            return await cls.get_config(resource_key)
+
+        existing = await cls.get_config(resource_key)
+        if not existing:
+            return None
+
+        if change_summary is None and action_type == "UPDATE":
+            change_summary = ResourceVersionService.compute_change_summary(existing, update_dict)
+
         if 'resource_group' in update_dict:
             cls._assert_assignable_resource_group(update_dict['resource_group'], resource_key)
         set_clauses = []; values = []
@@ -153,7 +182,42 @@ class MetaService:
                 await cursor.execute(f"UPDATE sys_resource_meta SET {', '.join(set_clauses)} WHERE resource_key = %s", tuple(values))
                 await conn.commit()
         await cls.invalidate_cache(resource_key)
-        return await cls._fetch_from_db(resource_key)
+        updated = await cls._fetch_from_db(resource_key)
+        if updated:
+            try:
+                await ResourceVersionService.record_version(
+                    updated, action_type, operator, change_summary
+                )
+            except Exception as e:
+                logger.warning("Failed to record resource update version: %s", e)
+        return updated
+
+    @classmethod
+    async def rollback_resource(
+        cls,
+        resource_key: str,
+        version_id: int,
+        operator: Optional[Dict[str, Any]] = None,
+    ) -> Optional[ResourceResponse]:
+        rollback_data = await ResourceVersionService.get_snapshot_for_rollback(version_id)
+        if not rollback_data:
+            return None
+        target_key, snapshot, version_no = rollback_data
+        if target_key != resource_key:
+            return None
+
+        update_payload = {
+            field: snapshot.get(field)
+            for field in SNAPSHOT_FIELDS
+            if field != "resource_key" and field in snapshot
+        }
+        return await cls.update_resource(
+            resource_key,
+            ResourceUpdate(**update_payload),
+            operator=operator,
+            action_type="ROLLBACK",
+            change_summary=f"回滚至版本 v{version_no}",
+        )
 
     @classmethod
     async def delete_resource(cls, resource_key: str) -> bool:

@@ -24,6 +24,10 @@ const router = createRouter({
       children: [
         {
           path: '',
+          redirect: { name: 'Catalog' },
+        },
+        {
+          path: 'overview',
           name: 'Overview',
           component: Overview,
           meta: { menuCode: 'menu:overview' }
@@ -158,7 +162,7 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/dashboard'
+      redirect: '/dashboard/catalog'
     }
   ]
 })

@@ -628,7 +628,7 @@ async def publish_api(
         if resource_create.custom_sql:
             resource_create.custom_sql = re.sub(r'\s+LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*;?\s*$', '', resource_create.custom_sql, flags=re.IGNORECASE)
         
-        result = await MetaService.create_resource(resource_create)
+        result = await MetaService.create_resource(resource_create, operator=user)
         
         # 审计记录 (LAB_PUBLISH)
         from app.api.v1.endpoints.sql_execution import _insert_audit_log

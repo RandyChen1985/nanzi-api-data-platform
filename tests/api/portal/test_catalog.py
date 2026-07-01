@@ -387,3 +387,113 @@ async def test_catalog_sync_access_after_approve(client: AsyncClient, admin_head
     body = sync.json()
     assert "has_access" in body
     assert body.get("required_count", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_catalog_linked_resource_versions(client: AsyncClient, admin_headers: dict):
+    import time
+    from app.core.database import get_db_connection
+
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sys_resource_meta_versions (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  resource_key VARCHAR(100) NOT NULL,
+                  version_no INT NOT NULL,
+                  action_type VARCHAR(32) NOT NULL DEFAULT 'UPDATE',
+                  snapshot JSON NOT NULL,
+                  change_summary VARCHAR(500) DEFAULT NULL,
+                  operator_user_id BIGINT DEFAULT NULL,
+                  operator_name VARCHAR(64) DEFAULT NULL,
+                  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uk_resource_version (resource_key, version_no),
+                  KEY idx_resource_key_created (resource_key, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+        await conn.commit()
+
+    resource_key = f"test_cat_link_ver_{int(time.time())}"
+    payload = {
+        "resource_key": resource_key,
+        "resource_name": "目录关联版本测试",
+        "resource_group": "测试分组",
+        "data_source": "default_clickhouse",
+        "resource_mode": "TABLE",
+        "table_name": "ck_fact_yunshu_rooms_hbase",
+        "custom_sql": None,
+        "fields_config": [{"name": "rowkey", "label": "行键", "type": "String"}],
+        "allowed_filters": [],
+        "default_sort": "rowkey",
+        "status": 1,
+        "cache_ttl": 0,
+        "remarks": "catalog version test",
+    }
+    create = await client.post("/api/portal/meta/resources", headers=admin_headers, json=payload)
+    assert create.status_code == 200
+
+    publish = await client.post(
+        "/api/portal/catalog/products/publish-from-resource",
+        headers=admin_headers,
+        json={"resource_key": resource_key, "publish": False},
+    )
+    assert publish.status_code == 200
+    product_key = publish.json()["product_key"]
+
+    update = await client.put(
+        f"/api/portal/meta/resources/{resource_key}",
+        headers=admin_headers,
+        json={"resource_name": "目录关联版本测试-更新"},
+    )
+    assert update.status_code == 200
+
+    versions = await client.get(
+        f"/api/portal/catalog/products/{product_key}/linked-resource-versions",
+        headers=admin_headers,
+        params={"keys": resource_key, "limit": 5},
+    )
+    assert versions.status_code == 200
+    data = versions.json()
+    assert data["product_key"] == product_key
+    assert len(data["resources"]) == 1
+    assert data["resources"][0]["resource_key"] == resource_key
+    assert data["resources"][0]["total_versions"] >= 2
+    assert len(data["resources"][0]["recent_versions"]) >= 2
+
+@pytest.mark.asyncio
+async def test_catalog_linked_resource_versions_readonly_user(
+    client: AsyncClient, admin_headers: dict, valid_api_key: str
+):
+    products = await client.get("/api/portal/catalog/products", headers={"X-API-Key": valid_api_key})
+    items = _catalog_items(products.json())
+    if not items:
+        pytest.skip("无已发布产品")
+    key = items[0]["product_key"]
+    user_headers = {"X-API-Key": valid_api_key}
+    response = await client.get(
+        f"/api/portal/catalog/products/{key}/linked-resource-versions",
+        headers=user_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["product_key"] == key
+
+
+@pytest.mark.asyncio
+async def test_catalog_linked_resource_versions_rejects_unlinked_key_for_user(
+    client: AsyncClient, admin_headers: dict, valid_api_key: str
+):
+    products = await client.get("/api/portal/catalog/products", headers={"X-API-Key": valid_api_key})
+    items = _catalog_items(products.json())
+    if not items:
+        pytest.skip("无已发布产品")
+    key = items[0]["product_key"]
+    response = await client.get(
+        f"/api/portal/catalog/products/{key}/linked-resource-versions",
+        headers={"X-API-Key": valid_api_key},
+        params={"keys": "totally_unrelated_resource_key"},
+    )
+    assert response.status_code == 200
+    assert response.json()["resources"] == []

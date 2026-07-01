@@ -6,6 +6,7 @@ import Toast from '../../components/Toast.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import TablePicker from '@/components/resources/TablePicker.vue'
 import ColumnPicker from '@/components/resources/ColumnPicker.vue'
+import ResourceVersionDiff from '@/components/resources/ResourceVersionDiff.vue'
 import { Codemirror } from 'vue-codemirror'
 import { sql } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -124,7 +125,9 @@ onMounted(() => {
     fetchDataSources()
     fetchGroups()
     if (isEdit.value) {
-        fetchResource()
+        fetchResource().then(() => {
+            if (route.query.tab === 'history') switchToHistoryTab()
+        })
     } else {
         // Check for router state data
         const state = history.state
@@ -370,7 +373,88 @@ const showImportDialog = ref(false)
 const importTarget = ref<'fields_config' | 'allowed_filters'>('fields_config')
 const selectedColumnNames = ref<string[]>([])
 const showTemplateHelp = ref(false)
-const activeTab = ref('config') // config | test
+const activeTab = ref('config') // config | test | history
+
+// Version history
+const versions = ref<any[]>([])
+const versionsTotal = ref(0)
+const versionsLoading = ref(false)
+const versionDiff = ref<any>(null)
+const versionDiffLoading = ref(false)
+const rollbackLoadingId = ref<number | null>(null)
+
+const actionTypeLabel = (action: string) => {
+  const map: Record<string, string> = { CREATE: '创建', UPDATE: '更新', ROLLBACK: '回滚' }
+  return map[action] || action
+}
+
+const fetchVersions = async () => {
+  if (!isEdit.value) return
+  versionsLoading.value = true
+  try {
+    const res = await axios.get(`/api/portal/meta/resources/${resourceKeyParam}/versions`, {
+      params: { page: 1, size: 50 },
+    })
+    versions.value = res.data.items || []
+    versionsTotal.value = res.data.total || 0
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '加载版本历史失败', 'error')
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+const loadVersionDiff = async (versionId: number) => {
+  versionDiffLoading.value = true
+  versionDiff.value = null
+  try {
+    const res = await axios.get(
+      `/api/portal/meta/resources/${resourceKeyParam}/versions/${versionId}/diff`,
+      { params: { compare_target: 'current' } }
+    )
+    versionDiff.value = res.data
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '加载差异失败', 'error')
+  } finally {
+    versionDiffLoading.value = false
+  }
+}
+
+const switchToHistoryTab = () => {
+  activeTab.value = 'history'
+  fetchVersions()
+}
+
+const confirmRollback = (version: any) => {
+  openConfirm({
+    title: '回滚资源配置',
+    message: `确认将资源回滚至版本 v${version.version_no}？当前配置会先被记录为新版本。`,
+    type: 'warning',
+    confirmText: '确认回滚',
+    onConfirm: () => doRollback(version.id),
+  })
+}
+
+const doRollback = async (versionId: number) => {
+  rollbackLoadingId.value = versionId
+  try {
+    const res = await axios.post(
+      `/api/portal/meta/resources/${resourceKeyParam}/versions/${versionId}/rollback`
+    )
+    form.value = { ...res.data }
+    if (!Array.isArray(form.value.fields_config)) form.value.fields_config = []
+    if (!Array.isArray(form.value.allowed_filters)) form.value.allowed_filters = []
+    syncGroupPickerFromForm()
+    snapshotForm()
+    showToast('已回滚至选定版本', 'success')
+    await fetchVersions()
+    versionDiff.value = null
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '回滚失败', 'error')
+  } finally {
+    rollbackLoadingId.value = null
+  }
+}
 
 // Fetch Tables
 const fetchTables = async () => {
@@ -607,6 +691,7 @@ const save = async (redirectToTest = false) => {
             snapshotForm()
             showValidationBanner.value = false
             if (redirectToTest) activeTab.value = 'test'
+            if (activeTab.value === 'history') fetchVersions()
         } else {
             await axios.post('/api/portal/meta/resources', form.value)
             showToast('资源创建成功', 'success')
@@ -752,6 +837,18 @@ const handleReady = (payload: any) => {
                   <span class="flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>
                     测试控制台
+                  </span>
+                </button>
+                <button
+                    v-if="isEdit"
+                    type="button"
+                    @click="switchToHistoryTab"
+                    class="px-4 py-2 rounded-lg text-sm font-bold transition-all"
+                    :class="activeTab === 'history' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'"
+                >
+                  <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    变更历史
                   </span>
                 </button>
             </div>
@@ -1247,6 +1344,84 @@ const handleReady = (payload: any) => {
             </div>
         </div>
         </div>
+    </div>
+
+    <!-- Version History -->
+    <div v-show="activeTab === 'history'" class="bg-white shadow rounded-lg p-6 space-y-4">
+        <div class="flex items-center justify-between gap-3">
+            <div>
+                <h3 class="text-lg font-semibold text-gray-900">变更历史</h3>
+                <p class="text-sm text-gray-500 mt-1">每次保存或回滚都会记录完整配置快照，最多保留 100 个版本。</p>
+            </div>
+            <button
+                type="button"
+                @click="fetchVersions"
+                :disabled="versionsLoading"
+                class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+                刷新
+            </button>
+        </div>
+
+        <div v-if="versionsLoading" class="py-12 text-center text-gray-500 text-sm">加载中...</div>
+        <div v-else-if="versions.length === 0" class="py-12 text-center text-gray-500 text-sm border border-dashed border-gray-200 rounded-lg">
+            暂无版本记录，保存一次配置后将自动开始记录。
+        </div>
+        <div v-else class="space-y-3">
+            <div
+                v-for="ver in versions"
+                :key="ver.id"
+                class="border border-gray-100 rounded-xl p-4 hover:border-blue-100 transition-colors"
+            >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-semibold text-gray-900">v{{ ver.version_no }}</span>
+                            <span
+                                class="text-xs px-2 py-0.5 rounded-full"
+                                :class="ver.action_type === 'ROLLBACK' ? 'bg-amber-100 text-amber-700' : ver.action_type === 'CREATE' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'"
+                            >
+                                {{ actionTypeLabel(ver.action_type) }}
+                            </span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1">
+                            {{ ver.operator_name || '系统' }}
+                            <span class="text-gray-400 mx-2">·</span>
+                            {{ ver.created_at }}
+                        </p>
+                        <p v-if="ver.change_summary" class="text-xs text-gray-500 mt-1">
+                            变更：{{ ver.change_summary }}
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            @click="loadVersionDiff(ver.id)"
+                            :disabled="versionDiffLoading"
+                            class="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                        >
+                            对比当前
+                        </button>
+                        <button
+                            v-if="hasPerm('element:resource:edit')"
+                            type="button"
+                            @click="confirmRollback(ver)"
+                            :disabled="rollbackLoadingId === ver.id"
+                            class="px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50"
+                        >
+                            {{ rollbackLoadingId === ver.id ? '回滚中...' : '回滚到此版本' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <ResourceVersionDiff
+            v-if="versionDiff"
+            :version-no="versionDiff.version_no"
+            :items="versionDiff.items || []"
+            @close="versionDiff = null"
+        />
     </div>
 
     <!-- Test Console -->

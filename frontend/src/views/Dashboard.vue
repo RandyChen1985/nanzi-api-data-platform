@@ -365,7 +365,7 @@ const menuGroups: MenuGroup[] = [
   {
     title: '',
     items: [
-      { name: '概览', to: '/dashboard', icon: 'dashboard', perm: 'menu:overview', activeNames: ['Overview'] }
+      { name: '概览', to: '/dashboard/overview', icon: 'dashboard', perm: 'menu:overview', activeNames: ['Overview'] }
     ]
   },
   {
@@ -499,10 +499,24 @@ const filteredMenuGroups = computed(() => {
          class="h-16 flex items-center bg-sidebar border-b border-gray-700 overflow-hidden whitespace-nowrap"
          :class="isCollapsed && !isMobile ? 'justify-center px-0' : 'px-4'"
       >
-        <img src="/favicon.png?v=20260629-2" class="w-8 h-8 flex-shrink-0 rounded-lg" alt="Logo" />
+        <router-link
+          to="/dashboard/catalog"
+          class="flex-shrink-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+          title="产品目录"
+          @click="isMobile ? closeMobileSidebar() : null"
+        >
+          <img src="/favicon.png?v=20260629-2" class="w-8 h-8 rounded-lg" alt="Logo" />
+        </router-link>
         <transition name="fade">
           <div v-if="!isCollapsed || isMobile" class="ml-2.5 flex flex-col justify-center -translate-y-0.5">
-            <span class="text-[15px] font-bold tracking-wide leading-tight">云枢 · 数据服务平台</span>
+            <router-link
+              to="/dashboard/catalog"
+              class="text-[15px] font-bold tracking-wide leading-tight hover:text-white/90 transition-colors focus:outline-none focus-visible:underline"
+              title="产品目录"
+              @click="isMobile ? closeMobileSidebar() : null"
+            >
+              云枢 · 数据服务平台
+            </router-link>
             <component
               :is="repoUrl ? 'a' : 'span'"
               :href="repoUrl || undefined"
@@ -647,11 +661,15 @@ const filteredMenuGroups = computed(() => {
             <nav v-else class="hidden md:flex" aria-label="Breadcrumb">
               <ol class="flex items-center space-x-2">
                 <li>
-                   <span class="text-gray-400 hover:text-gray-500">
+                   <router-link
+                     to="/dashboard/overview"
+                     class="text-gray-400 hover:text-indigo-600 transition-colors"
+                     title="概览"
+                   >
                       <svg class="flex-shrink-0 h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
                          <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
                       </svg>
-                   </span>
+                   </router-link>
                 </li>
                 <li v-for="(crumb, index) in breadcrumbs" :key="index" class="flex items-center">
                    <svg class="flex-shrink-0 h-5 w-5 text-gray-300" fill="currentColor" viewBox="0 0 20 20">

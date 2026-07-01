@@ -2,8 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from typing import List
 from app.schemas.resource import ResourceCreate, ResourceUpdate, ResourceResponse
 from app.schemas.introspection import TableListResponse, ColumnListResponse, ColumnIntrospectRequest
+from app.schemas.resource_version import (
+    ResourceVersionDetail,
+    ResourceVersionDiffResponse,
+    ResourceVersionListResponse,
+)
 from app.services.meta_service import MetaService
-from app.core.dependencies import require_admin, require_api_key
+from app.services.resource_version_service import ResourceVersionService
+from app.core.dependencies import require_admin, require_api_key, require_permission
 import logging
 
 router = APIRouter()
@@ -35,7 +41,7 @@ async def create_resource(
         if existing:
             raise HTTPException(status_code=400, detail=f"Resource {resource.resource_key} already exists")
             
-        new_resource = await MetaService.create_resource(resource)
+        new_resource = await MetaService.create_resource(resource, operator=user)
         return new_resource
     except Exception as e:
         logger.error(f"Failed to create resource: {e}")
@@ -57,7 +63,7 @@ async def update_resource(
         if not existing:
             raise HTTPException(status_code=404, detail="Resource not found")
             
-        updated = await MetaService.update_resource(resource_key, update_data)
+        updated = await MetaService.update_resource(resource_key, update_data, operator=user)
         return updated
     except Exception as e:
         logger.error(f"Failed to update resource: {e}")
@@ -81,6 +87,73 @@ async def delete_resource(
     except Exception as e:
         logger.error(f"Failed to delete resource: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/resources/{resource_key}/versions", response_model=ResourceVersionListResponse)
+async def list_resource_versions(
+    resource_key: str,
+    page: int = 1,
+    size: int = 20,
+    user: dict = Depends(require_api_key),
+):
+    existing = await MetaService.get_config(resource_key)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return await ResourceVersionService.list_versions(resource_key, page=page, size=size)
+
+
+@router.get("/resources/{resource_key}/versions/{version_id}", response_model=ResourceVersionDetail)
+async def get_resource_version(
+    resource_key: str,
+    version_id: int,
+    user: dict = Depends(require_api_key),
+):
+    version = await ResourceVersionService.get_version(version_id)
+    if not version or version.resource_key != resource_key:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return version
+
+
+@router.get(
+    "/resources/{resource_key}/versions/{version_id}/diff",
+    response_model=ResourceVersionDiffResponse,
+)
+async def diff_resource_version(
+    resource_key: str,
+    version_id: int,
+    compare_target: str = "current",
+    user: dict = Depends(require_api_key),
+):
+    if compare_target not in ("current", "previous"):
+        raise HTTPException(status_code=400, detail="compare_target must be current or previous")
+
+    current = await MetaService.get_config(resource_key)
+    if not current:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    diff = await ResourceVersionService.diff_version(
+        resource_key, version_id, current, compare_target=compare_target
+    )
+    if not diff:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return diff
+
+
+@router.post("/resources/{resource_key}/versions/{version_id}/rollback", response_model=ResourceResponse)
+async def rollback_resource_version(
+    request_in: Request,
+    resource_key: str,
+    version_id: int,
+    user: dict = Depends(require_permission("element:resource:edit")),
+):
+    request_in.state.action_type = "META_RESOURCE_ROLLBACK"
+    existing = await MetaService.get_config(resource_key)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    rolled_back = await MetaService.rollback_resource(resource_key, version_id, operator=user)
+    if not rolled_back:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return rolled_back
 
 @router.post("/datasource/tables", response_model=TableListResponse)
 async def list_tables(

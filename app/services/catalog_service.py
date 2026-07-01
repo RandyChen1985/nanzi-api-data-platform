@@ -11,6 +11,8 @@ import aiomysql
 from app.core.database import get_db_connection
 from app.services.meta_service import MetaService
 from app.services.permission_service import PermissionService
+from app.services.resource_version_service import ResourceVersionService
+from app.schemas.resource_version import ResourceVersionListResponse
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +219,17 @@ class CatalogService:
         return int(user["user_id"])
 
     @classmethod
+    def _featured_bool(cls, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, bool):
+            return value
+        try:
+            return int(value) == 1
+        except (TypeError, ValueError):
+            return bool(value)
+
+    @classmethod
     def _row_to_list_item(
         cls,
         row: Dict[str, Any],
@@ -239,7 +252,7 @@ class CatalogService:
             "domain": row.get("domain") or "默认域",
             "tags": tags,
             "status": row.get("status", 0),
-            "featured": bool(row.get("featured")),
+            "featured": cls._featured_bool(row.get("featured")),
             "owner_name": row.get("owner_name"),
             "owner_user_id": row.get("owner_user_id"),
             "primary_resource_key": resource_key,
@@ -471,9 +484,10 @@ class CatalogService:
     @classmethod
     async def get_product(cls, product_key: str, user: Dict) -> Optional[Dict[str, Any]]:
         admin = user.get("role") == "admin"
+        can_edit = await cls.can_edit_product(user, product_key)
         row_list = await cls._fetch_product_rows(
             product_key=product_key,
-            status=None if admin else STATUS_PUBLISHED,
+            status=None if (admin or can_edit) else STATUS_PUBLISHED,
             limit=1,
         )
         if not row_list:
@@ -553,9 +567,7 @@ class CatalogService:
             key=lambda x: x.get("published_at") or x.get("updated_at") or "",
             reverse=True,
         )[:6]
-        featured = [p for p in products if p.get("featured")][:6]
-        if not featured:
-            featured = hot[:3]
+        featured = [p for p in products if p.get("featured")]
         return {"hot": hot, "newest": newest, "featured": featured}
 
     @classmethod
@@ -825,6 +837,18 @@ class CatalogService:
         return row.get("owner_user_id") == int(user["user_id"])
 
     @classmethod
+    async def can_view_product(cls, user: Dict, product_key: str) -> bool:
+        """已发布产品对所有登录用户可见；草稿/下线仅负责人或管理员可查看。"""
+        row = await cls._get_raw_product(product_key)
+        if not row:
+            return False
+        if user.get("role") == "admin":
+            return True
+        if await cls.can_edit_product(user, product_key):
+            return True
+        return row.get("status") == STATUS_PUBLISHED
+
+    @classmethod
     async def can_review_requests(cls, user: Dict, product_key: Optional[str] = None) -> bool:
         if user.get("role") == "admin":
             return True
@@ -848,6 +872,9 @@ class CatalogService:
         meta: Dict[str, Any] = {
             "can_edit": True,
             "is_admin": user.get("role") == "admin",
+            "can_manage_catalog": user.get("role") == "admin"
+            or "element:catalog:manage" in user.get("permissions", {}).get("elements", []),
+            "featured": cls._featured_bool(row.get("featured")),
             "can_assign_owner": False,
             "domains": [],
             "users": [],
@@ -886,6 +913,108 @@ class CatalogService:
             if (r.resource_group or "").strip().lower() != "system"
         ]
         return meta
+
+    @classmethod
+    async def _product_linked_resource_meta(
+        cls, product_id: int, resource_keys: Optional[List[str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                if resource_keys:
+                    placeholders = ", ".join(["%s"] * len(resource_keys))
+                    await cursor.execute(
+                        f"""
+                        SELECT pr.resource_key, pr.is_primary, m.resource_name
+                        FROM data_product_resources pr
+                        LEFT JOIN sys_resource_meta m ON m.resource_key = pr.resource_key
+                        WHERE pr.product_id = %s AND pr.resource_key IN ({placeholders})
+                        ORDER BY pr.sort_order, pr.is_primary DESC
+                        """,
+                        (product_id, *resource_keys),
+                    )
+                else:
+                    await cursor.execute(
+                        """
+                        SELECT pr.resource_key, pr.is_primary, m.resource_name
+                        FROM data_product_resources pr
+                        LEFT JOIN sys_resource_meta m ON m.resource_key = pr.resource_key
+                        WHERE pr.product_id = %s
+                        ORDER BY pr.sort_order, pr.is_primary DESC
+                        """,
+                        (product_id,),
+                    )
+                rows = await cursor.fetchall()
+
+        meta: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            meta[row["resource_key"]] = {
+                "resource_name": row.get("resource_name"),
+                "is_primary": bool(row.get("is_primary")),
+            }
+
+        if resource_keys:
+            return {k: meta[k] for k in resource_keys if k in meta}
+
+        return meta
+
+    @classmethod
+    async def _enrich_unsaved_resource_keys(
+        cls, product_id: int, resource_keys: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """编辑页预览：合并已保存关联与尚未保存的 resource_key。"""
+        meta = await cls._product_linked_resource_meta(product_id, resource_keys)
+        missing = [k for k in resource_keys if k not in meta]
+        if missing:
+            for resource in await MetaService.list_resources():
+                if resource.resource_key in missing:
+                    meta[resource.resource_key] = {
+                        "resource_name": resource.resource_name,
+                        "is_primary": False,
+                    }
+        return {k: meta.get(k, {"resource_name": None, "is_primary": False}) for k in resource_keys}
+
+    @classmethod
+    async def get_linked_resource_versions(
+        cls,
+        user: Dict,
+        product_key: str,
+        resource_keys: Optional[List[str]] = None,
+        limit: int = 5,
+    ) -> Dict[str, Any]:
+        if not await cls.can_view_product(user, product_key):
+            raise PermissionError("无权限查看该产品")
+        row = await cls._get_raw_product(product_key)
+        if not row:
+            raise ValueError("产品不存在")
+
+        can_edit = await cls.can_edit_product(user, product_key)
+        if resource_keys:
+            if can_edit:
+                key_meta = await cls._enrich_unsaved_resource_keys(row["id"], resource_keys)
+            else:
+                db_meta = await cls._product_linked_resource_meta(row["id"])
+                key_meta = {k: db_meta[k] for k in resource_keys if k in db_meta}
+        else:
+            key_meta = await cls._product_linked_resource_meta(row["id"])
+        keys = list(key_meta.keys())
+        if not keys:
+            return {"product_key": product_key, "resources": []}
+
+        version_map = await ResourceVersionService.list_recent_for_keys(keys, per_key_limit=limit)
+        resources = []
+        for key in keys:
+            info = key_meta.get(key, {})
+            versions = version_map.get(key) or ResourceVersionListResponse(total=0, items=[])
+            resources.append(
+                {
+                    "resource_key": key,
+                    "resource_name": info.get("resource_name"),
+                    "is_primary": info.get("is_primary", False),
+                    "total_versions": versions.total,
+                    "recent_versions": [item.dict() for item in versions.items],
+                }
+            )
+        return {"product_key": product_key, "resources": resources}
 
     @classmethod
     async def update_product_resources(

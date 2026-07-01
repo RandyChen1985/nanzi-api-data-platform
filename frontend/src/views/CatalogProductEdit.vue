@@ -4,6 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from '@/utils/axios'
 import { useToast } from '@/composables/useToast'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import SearchSelect from '@/components/common/SearchSelect.vue'
+import CatalogLinkedResourceChanges from '@/components/catalog/CatalogLinkedResourceChanges.vue'
+import { renderMarkdown } from '@/utils/markdown'
+import { toFeaturedBool } from '@/utils/catalog'
 
 interface ResourceLink {
   resource_key: string
@@ -33,6 +37,10 @@ const form = ref({
 const tagInput = ref('')
 const resourceConflicts = ref<any[]>([])
 const archivingConflict = ref<string | null>(null)
+const descriptionPreviewHtml = computed(() => renderMarkdown(form.value.description))
+const canSetFeatured = computed(
+  () => meta.value?.is_admin || meta.value?.can_manage_catalog,
+)
 
 const fetchResourceConflicts = async () => {
   if (!linkedResources.value.length) {
@@ -82,6 +90,32 @@ const availableToAdd = computed(() => {
   )
 })
 
+const availableResourceOptions = computed(() =>
+  availableToAdd.value.map((r: any) => ({
+    value: r.resource_key,
+    label: r.resource_name || r.resource_key,
+    sublabel: [r.resource_key, r.resource_group].filter(Boolean).join(' · '),
+    keywords: r.resource_group,
+  })),
+)
+
+const ownerOptions = computed(() =>
+  (meta.value?.users || []).map((u: any) => ({
+    value: u.id,
+    label: u.user_name,
+    sublabel: u.remark || undefined,
+    keywords: u.remark,
+  })),
+)
+
+const datasetOptions = computed(() =>
+  (meta.value?.datasets || []).map((ds: any) => ({
+    value: ds.id,
+    label: ds.display_name || ds.name,
+    sublabel: ds.data_source,
+  })),
+)
+
 const load = async () => {
   loading.value = true
   try {
@@ -90,6 +124,7 @@ const load = async () => {
       axios.get(`/api/portal/catalog/products/${productKey.value}/edit-meta`),
     ])
     const p = productRes.data
+    const m = metaRes.data
     form.value = {
       display_name: p.display_name || '',
       summary: p.summary || '',
@@ -98,7 +133,7 @@ const load = async () => {
       tags: p.tags || [],
       owner_user_id: p.owner_user_id ?? null,
       dataset_id: p.dataset_id ?? null,
-      featured: !!p.featured,
+      featured: toFeaturedBool(m.featured ?? p.featured),
     }
     linkedResources.value = (p.resources || []).map((r: any) => ({
       resource_key: r.resource_key,
@@ -272,8 +307,31 @@ onMounted(load)
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">详细介绍</label>
-          <textarea v-model="form.description" rows="6" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="支持 Markdown" />
+          <div class="flex items-center justify-between mb-1">
+            <label class="text-sm font-medium text-gray-700">详细介绍</label>
+            <span class="text-xs text-gray-400">支持 Markdown</span>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <textarea
+              v-model="form.description"
+              rows="10"
+              class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono resize-y min-h-[200px]"
+              placeholder="支持标题、列表、链接、粗体等 Markdown 语法"
+            />
+            <div class="border border-gray-200 rounded-lg bg-gray-50/80 flex flex-col min-h-[200px] overflow-hidden">
+              <div class="px-3 py-2 border-b border-gray-200 bg-white text-xs font-medium text-gray-500">
+                实时预览
+              </div>
+              <div class="flex-1 overflow-auto p-3">
+                <div
+                  v-if="descriptionPreviewHtml"
+                  class="markdown-body prose prose-sm max-w-none text-gray-700 break-words"
+                  v-html="descriptionPreviewHtml"
+                />
+                <p v-else class="text-sm text-gray-400">输入内容后将在此显示渲染效果</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="border border-gray-100 rounded-lg p-4 space-y-3">
@@ -309,16 +367,25 @@ onMounted(load)
             </div>
           </div>
           <div class="flex gap-2 pt-1">
-            <select v-model="addResourceKey" class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm">
-              <option value="">选择要添加的 API...</option>
-              <option v-for="r in availableToAdd" :key="r.resource_key" :value="r.resource_key">
-                {{ r.resource_name || r.resource_key }} ({{ r.resource_group }})
-              </option>
-            </select>
-            <button type="button" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50" @click="addResource">
+            <div class="flex-1 min-w-0">
+              <SearchSelect
+                v-model="addResourceKey"
+                :options="availableResourceOptions"
+                placeholder="选择要添加的 API..."
+                search-placeholder="搜索 API 名称或 key..."
+                allow-empty
+                empty-label="选择要添加的 API..."
+                :empty-value="''"
+              />
+            </div>
+            <button type="button" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 shrink-0" @click="addResource">
               添加
             </button>
           </div>
+          <CatalogLinkedResourceChanges
+            :product-key="productKey"
+            :linked-resources="linkedResources"
+          />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -331,23 +398,29 @@ onMounted(load)
           </div>
           <div v-if="meta?.can_assign_owner">
             <label class="block text-sm font-medium text-gray-700 mb-1">负责人 *</label>
-            <select v-model="form.owner_user_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-              <option :value="null">请选择</option>
-              <option v-for="u in meta?.users || []" :key="u.id" :value="u.id">
-                {{ u.user_name }}{{ u.remark ? ` (${u.remark})` : '' }}
-              </option>
-            </select>
+            <SearchSelect
+              v-model="form.owner_user_id"
+              :options="ownerOptions"
+              placeholder="请选择"
+              search-placeholder="搜索用户名或备注..."
+              allow-empty
+              empty-label="请选择"
+              :empty-value="null"
+            />
           </div>
         </div>
 
         <div v-if="meta?.is_admin">
           <label class="block text-sm font-medium text-gray-700 mb-1">关联语义数据集</label>
-          <select v-model="form.dataset_id" class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-            <option :value="null">不关联</option>
-            <option v-for="ds in meta?.datasets || []" :key="ds.id" :value="ds.id">
-              {{ ds.display_name || ds.name }} ({{ ds.data_source }})
-            </option>
-          </select>
+          <SearchSelect
+            v-model="form.dataset_id"
+            :options="datasetOptions"
+            placeholder="不关联"
+            search-placeholder="搜索数据集名称或数据源..."
+            allow-empty
+            empty-label="不关联"
+            :empty-value="null"
+          />
         </div>
 
         <div>
@@ -368,8 +441,8 @@ onMounted(load)
           </div>
         </div>
 
-        <label v-if="meta?.is_admin" class="flex items-center gap-2 text-sm text-gray-700">
-          <input v-model="form.featured" type="checkbox" class="rounded border-gray-300" />
+        <label v-if="canSetFeatured" class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <input v-model="form.featured" type="checkbox" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
           设为精选产品
         </label>
 

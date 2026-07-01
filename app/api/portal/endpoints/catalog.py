@@ -29,6 +29,7 @@ from app.schemas.catalog import (
     ArchiveRedundantResult,
     SyncAccessResult,
 )
+from app.schemas.resource_version import ProductLinkedResourceVersionsResponse
 from app.services.catalog_service import CatalogService, STATUS_DRAFT, REQUEST_PENDING
 from app.api.portal.endpoints.dashboard import is_admin
 
@@ -206,6 +207,27 @@ async def get_product_edit_meta(product_key: str, user: dict = Depends(require_a
         raise HTTPException(status_code=403, detail=str(e))
 
 
+@router.get(
+    "/products/{product_key}/linked-resource-versions",
+    response_model=ProductLinkedResourceVersionsResponse,
+)
+async def get_product_linked_resource_versions(
+    product_key: str,
+    keys: Optional[str] = Query(None, description="逗号分隔的 resource_key，默认取产品已关联资源"),
+    limit: int = Query(5, ge=1, le=20),
+    user: dict = Depends(require_api_key),
+):
+    resource_keys = [k.strip() for k in keys.split(",") if k.strip()] if keys else None
+    try:
+        return await CatalogService.get_linked_resource_versions(
+            user, product_key, resource_keys=resource_keys, limit=limit
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+
 @router.get("/products/{product_key}", response_model=ProductDetail)
 async def get_product_detail(product_key: str, user: dict = Depends(require_api_key)):
     product = await CatalogService.get_product(product_key, user)
@@ -224,7 +246,12 @@ async def update_product(
     request_in.state.action_type = "CATALOG_PRODUCT_UPDATE"
     if not await CatalogService.can_edit_product(user, product_key):
         raise HTTPException(status_code=403, detail="无产品编辑权限")
-    ok = await CatalogService.update_product(product_key, body.model_dump(exclude_unset=True))
+    data = body.model_dump(exclude_unset=True)
+    perms = user.get("permissions", {}).get("elements", [])
+    can_manage_catalog = user.get("role") == "admin" or "element:catalog:manage" in perms
+    if not can_manage_catalog:
+        data.pop("featured", None)
+    ok = await CatalogService.update_product(product_key, data)
     if not ok:
         raise HTTPException(status_code=404, detail="产品不存在或无变更")
     return {"success": True}
