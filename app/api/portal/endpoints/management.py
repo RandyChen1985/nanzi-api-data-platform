@@ -48,7 +48,10 @@ async def list_available_roles(admin: dict = Depends(require_admin)):
     async with get_db_connection() as conn:
         async with conn.cursor() as cursor:
             # 1. Fetch Roles
-            await cursor.execute("SELECT id, role_code, role_name, description, created_at, masking_strategy FROM sys_roles ORDER BY created_at DESC")
+            await cursor.execute(
+                "SELECT id, role_code, role_name, description, created_at, masking_strategy, rate_limit "
+                "FROM sys_roles ORDER BY created_at DESC"
+            )
             role_rows = await cursor.fetchall()
             
             # 2. Fetch Counts for all roles at once (Permissions)
@@ -92,6 +95,7 @@ async def list_available_roles(admin: dict = Depends(require_admin)):
                     "description": row[3],
                     "created_at": row[4],
                     "masking_strategy": row[5],
+                    "rate_limit": row[6],
                     "stats": stats
                 })
             return results
@@ -149,13 +153,17 @@ async def get_role_ui_permissions(role_id: int, admin: dict = Depends(require_ad
                 (role_id,)
             )
             rows = await cursor.fetchall()
-            res = {"menus": [], "elements": [], "resources": [], "datasources": [], "data_tables": []}
+            res = {"menus": [], "elements": [], "resources": [], "datasources": [], "data_tables": [], "rate_limit": None}
             for p_type, p_code in rows:
                 if p_type == 'menu': res["menus"].append(p_code)
                 elif p_type == 'element': res["elements"].append(p_code)
                 elif p_type == 'resource': res["resources"].append(p_code)
                 elif p_type == 'datasource': res["datasources"].append(p_code)
                 elif p_type == 'data_table': res["data_tables"].append(p_code)
+            await cursor.execute("SELECT rate_limit FROM sys_roles WHERE id = %s", (role_id,))
+            rate_row = await cursor.fetchone()
+            if rate_row:
+                res["rate_limit"] = rate_row[0]
             return res
 
 @router.get("/roles/{role_id}/users")

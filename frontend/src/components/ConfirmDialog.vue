@@ -6,6 +6,7 @@ defineProps<{
   confirmText?: string
   cancelText?: string
   type?: 'danger' | 'warning' | 'info'
+  zIndex?: number
 }>()
 
 defineEmits(['confirm', 'cancel'])
@@ -14,7 +15,11 @@ defineEmits(['confirm', 'cancel'])
 <template>
   <teleport to="body">
     <transition name="fade">
-      <div v-if="show" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div
+        v-if="show"
+        class="fixed inset-0 flex items-center justify-center p-4"
+        :style="{ zIndex: zIndex ?? 100 }"
+      >
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-black bg-opacity-50 transition-opacity" @click="$emit('cancel')"></div>
         
