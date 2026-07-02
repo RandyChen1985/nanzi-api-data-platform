@@ -133,6 +133,10 @@ class BatchPublishResult(BaseModel):
     total: int = 0
 
 
+class BatchPublishFromResourcesRequest(BaseModel):
+    resource_keys: List[str] = Field(..., min_length=1)
+
+
 class BatchAssignOwnerRequest(BaseModel):
     owner_user_id: int
     product_keys: Optional[List[str]] = None

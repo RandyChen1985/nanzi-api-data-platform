@@ -90,7 +90,11 @@ onUnmounted(() => {
   window.removeEventListener('resize', onScrollOrResize)
 })
 
-const actionKind = computed(() => getSystemResourceActionKind(props.resource.resource_key))
+const onDeleteClick = () => {
+  if (props.catalogStatus === 1) return
+  emit('delete')
+  menuOpen.value = false
+}
 const showEditLink = computed(() => !actionKind.value)
 const showDebugLink = computed(() => !actionKind.value || actionKind.value === 'metadata_search_debug_only')
 const showMoreMenu = computed(() => !actionKind.value || actionKind.value === 'sql_execute')
@@ -190,8 +194,11 @@ const showMoreMenu = computed(() => !actionKind.value || actionKind.value === 's
           <hr v-if="canDelete && !isLockedSystemResource(resource)" class="my-1 border-gray-100" />
           <button
             v-if="canDelete && !isLockedSystemResource(resource)"
-            class="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600"
-            @click="emit('delete'); menuOpen = false"
+            class="w-full text-left px-3 py-2"
+            :class="catalogStatus === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-red-50 text-red-600'"
+            :disabled="catalogStatus === 1"
+            :title="catalogStatus === 1 ? '已上架到目录，请先从目录下架后再删除' : undefined"
+            @click="onDeleteClick"
           >
             删除资源
           </button>

@@ -54,6 +54,9 @@ const productsWithoutOwner = ref(0)
 const assigningOwner = ref(false)
 
 const canManageCatalog = computed(() => isAdmin.value || hasPerm('element:catalog:manage'))
+const canPublishToCatalog = computed(
+  () => isAdmin.value || hasPerm('element:catalog:publish') || hasPerm('element:resource:edit'),
+)
 
 const extensions = [sql(), oneDark]
 
@@ -303,22 +306,63 @@ const openDeleteModal = (keys: string[]) => {
   showDeleteModal.value = true
 }
 
-const confirmDeleteResource = (key: string) => openDeleteModal([key])
-const confirmBatchDelete = () => openDeleteModal(Array.from(selectedKeys.value))
+const isCatalogPublished = (key: string) => catalogStatusMap.value[key] === 1
+
+const isCatalogPublishable = (key: string) => {
+  const status = catalogStatusMap.value[key]
+  return status === undefined || status === 0 || status === 2
+}
+
+const publishableKeys = (keys: string[]) =>
+  keys.filter((key) => {
+    const res = resources.value.find((r) => r.resource_key === key)
+    return (
+      res
+      && !isLockedSystemResource(res)
+      && (res.resource_group || '').toLowerCase() !== 'system'
+      && isCatalogPublishable(key)
+    )
+  })
+
+const deletableKeys = (keys: string[]) =>
+  keys.filter((key) => {
+    const res = resources.value.find((r) => r.resource_key === key)
+    return res && !isLockedSystemResource(res) && !isCatalogPublished(key)
+  })
+
+const confirmDeleteResource = (key: string) => {
+  if (isCatalogPublished(key)) {
+    showToast('该资源已上架到目录，请先从目录下架后再删除', 'warning')
+    return
+  }
+  openDeleteModal([key])
+}
+
+const confirmBatchDelete = () => {
+  const keys = Array.from(selectedKeys.value)
+  const published = keys.filter(isCatalogPublished)
+  const allowed = deletableKeys(keys)
+  if (!allowed.length) {
+    showToast('所选资源均已上架到目录，请先下架后再删除', 'warning')
+    return
+  }
+  if (published.length) {
+    showToast(`已跳过 ${published.length} 个已上架资源`, 'warning')
+  }
+  openDeleteModal(allowed)
+}
 
 const executeDelete = async () => {
   deleteLoading.value = true
   let successCount = 0
-  const keys = deleteModalKeys.value.filter((key) => {
-    const res = resources.value.find((r) => r.resource_key === key)
-    return res && !isLockedSystemResource(res)
-  })
+  const keys = deletableKeys(deleteModalKeys.value)
   for (const key of keys) {
     try {
       await axios.delete(`/api/portal/meta/resources/${key}`)
       successCount++
-    } catch {
-      /* continue */
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      showToast(err.response?.data?.detail || `删除 ${key} 失败`, 'error')
     }
   }
   showToast(`删除完成：成功 ${successCount}，失败 ${keys.length - successCount}`, successCount > 0 ? 'success' : 'warning')
@@ -457,9 +501,16 @@ const confirmUnpublishFromCatalog = async () => {
   }
 }
 
-const batchPublishCatalog = async () => {
+const batchPublishSelected = async () => {
+  const keys = publishableKeys(Array.from(selectedKeys.value))
+  if (!keys.length) {
+    showToast('所选资源均已上架或为系统资源，无需发布', 'warning')
+    return
+  }
   try {
-    const res = await axios.post('/api/portal/catalog/products/batch-publish')
+    const res = await axios.post('/api/portal/catalog/products/batch-publish-from-resources', {
+      resource_keys: keys,
+    })
     batchPublishResult.value = res.data
     if (res.data.skipped?.length) {
       showBatchPublishModal.value = true
@@ -467,9 +518,26 @@ const batchPublishCatalog = async () => {
       showToast(`已批量发布 ${res.data.published} 个产品`, 'success')
     }
     await fetchCatalogStatus()
+    selectedKeys.value.clear()
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
     showToast(err.response?.data?.detail || '批量发布失败', 'error')
+  }
+}
+
+const batchPublishAllDrafts = async () => {
+  try {
+    const res = await axios.post('/api/portal/catalog/products/batch-publish')
+    batchPublishResult.value = res.data
+    if (res.data.skipped?.length || res.data.total === 0) {
+      showBatchPublishModal.value = true
+    } else {
+      showToast(`已上架全部草稿：${res.data.published} 个`, 'success')
+    }
+    await fetchCatalogStatus()
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } } }
+    showToast(err.response?.data?.detail || '批量上架草稿失败', 'error')
   }
 }
 
@@ -729,9 +797,10 @@ onMounted(() => {
             <button
               v-if="isAdmin"
               class="text-indigo-600 border border-indigo-200 px-3 py-2 rounded-lg hover:bg-indigo-50 text-sm"
-              @click="batchPublishCatalog"
+              title="上架目录中全部草稿产品（与勾选无关）"
+              @click="batchPublishAllDrafts"
             >
-              批量发布目录
+              上架全部草稿
             </button>
             <button
               v-if="canManageCatalog"
@@ -761,14 +830,30 @@ onMounted(() => {
 
         <!-- Batch bar -->
         <div
-          v-if="selectedKeys.size > 0 && (hasPerm('element:resource:edit') || hasPerm('element:resource:delete'))"
+          v-if="selectedKeys.size > 0 && (hasPerm('element:resource:edit') || hasPerm('element:resource:delete') || canPublishToCatalog)"
           class="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between"
         >
           <span class="text-sm font-medium text-blue-700">已选 {{ selectedKeys.size }} 项</span>
           <div class="flex gap-2">
+            <button
+              v-if="canPublishToCatalog"
+              class="px-3 py-1 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="!publishableKeys(Array.from(selectedKeys)).length"
+              :title="!publishableKeys(Array.from(selectedKeys)).length ? '所选资源均已上架或为系统资源' : '发布未进目录、草稿或已下架的资源到目录'"
+              @click="batchPublishSelected"
+            >
+              批量发布目录
+            </button>
             <button class="px-3 py-1 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200" @click="batchUpdateStatus(1)">批量启用</button>
             <button class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300" @click="requestBatchDisable">批量禁用</button>
-            <button class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200" @click="confirmBatchDelete">批量删除</button>
+            <button
+              class="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              :disabled="!deletableKeys(Array.from(selectedKeys)).length"
+              :title="!deletableKeys(Array.from(selectedKeys)).length ? '所选资源均已上架到目录，请先下架' : undefined"
+              @click="confirmBatchDelete"
+            >
+              批量删除
+            </button>
             <button class="text-xs text-blue-500 underline ml-2" @click="selectedKeys.clear()">取消</button>
           </div>
         </div>
@@ -1123,7 +1208,7 @@ onMounted(() => {
           <h3 class="text-lg font-semibold text-gray-900">批量发布结果</h3>
           <p class="text-sm text-gray-500 mt-2">
             成功 <strong class="text-green-600">{{ batchPublishResult.published }}</strong> /
-            共 {{ batchPublishResult.total }} 个草稿
+            共 {{ batchPublishResult.total }} 项
           </p>
           <div v-if="batchPublishResult.skipped?.length" class="mt-4 space-y-2">
             <p class="text-sm font-medium text-amber-700">以下产品需补全信息后再发布：</p>

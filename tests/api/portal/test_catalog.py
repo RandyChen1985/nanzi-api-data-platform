@@ -1,4 +1,6 @@
 """数据产品目录 API 测试"""
+import time
+
 import pytest
 from httpx import AsyncClient
 
@@ -87,6 +89,111 @@ async def test_catalog_status_map(client: AsyncClient, admin_headers: dict):
     response = await client.get("/api/portal/catalog/status-map", headers=admin_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), dict)
+
+
+@pytest.mark.asyncio
+async def test_delete_resource_blocked_when_catalog_published(client: AsyncClient, admin_headers: dict):
+    resource_key = f"test_del_catalog_{int(time.time())}"
+    payload = {
+        "resource_key": resource_key,
+        "resource_name": "删除拦截测试",
+        "resource_group": "测试分组",
+        "data_source": "default_clickhouse",
+        "resource_mode": "TABLE",
+        "table_name": "ck_fact_yunshu_rooms_hbase",
+        "custom_sql": None,
+        "fields_config": [{"name": "rowkey", "label": "行键", "type": "String"}],
+        "allowed_filters": [],
+        "default_sort": "rowkey",
+        "status": 1,
+        "cache_ttl": 0,
+        "remarks": "delete guard test",
+    }
+    create = await client.post("/api/portal/meta/resources", headers=admin_headers, json=payload)
+    assert create.status_code == 200
+
+    publish = await client.post(
+        "/api/portal/catalog/products/publish-from-resource",
+        headers=admin_headers,
+        json={"resource_key": resource_key, "publish": True},
+    )
+    assert publish.status_code == 200
+
+    blocked = await client.delete(f"/api/portal/meta/resources/{resource_key}", headers=admin_headers)
+    assert blocked.status_code == 400
+    assert "下架" in blocked.json()["detail"]
+
+    status_map = await client.get("/api/portal/catalog/status-map", headers=admin_headers)
+    assert status_map.status_code == 200
+    assert status_map.json().get(resource_key) == 1
+
+    unpublish = await client.post(
+        f"/api/portal/catalog/products/{resource_key}/unpublish",
+        headers=admin_headers,
+        json={"revoke_permissions": False},
+    )
+    assert unpublish.status_code == 200
+
+    deleted = await client.delete(f"/api/portal/meta/resources/{resource_key}", headers=admin_headers)
+    assert deleted.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_batch_publish_from_resources_selected(client: AsyncClient, admin_headers: dict):
+    ts = int(time.time())
+    keys = [f"test_batch_pub_a_{ts}", f"test_batch_pub_b_{ts}"]
+    base_payload = {
+        "resource_group": "测试分组",
+        "data_source": "default_clickhouse",
+        "resource_mode": "TABLE",
+        "table_name": "ck_fact_yunshu_rooms_hbase",
+        "custom_sql": None,
+        "fields_config": [{"name": "rowkey", "label": "行键", "type": "String"}],
+        "allowed_filters": [],
+        "default_sort": "rowkey",
+        "status": 1,
+        "cache_ttl": 0,
+    }
+    for i, key in enumerate(keys):
+        payload = {
+            **base_payload,
+            "resource_key": key,
+            "resource_name": f"批量发布测试{i}",
+            "remarks": "batch publish selected",
+        }
+        create = await client.post("/api/portal/meta/resources", headers=admin_headers, json=payload)
+        assert create.status_code == 200
+
+    response = await client.post(
+        "/api/portal/catalog/products/batch-publish-from-resources",
+        headers=admin_headers,
+        json={"resource_keys": keys},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["published"] == 2
+    assert data["total"] == 2
+
+    status_map = await client.get("/api/portal/catalog/status-map", headers=admin_headers)
+    assert status_map.json().get(keys[0]) == 1
+    assert status_map.json().get(keys[1]) == 1
+
+    again = await client.post(
+        "/api/portal/catalog/products/batch-publish-from-resources",
+        headers=admin_headers,
+        json={"resource_keys": keys},
+    )
+    assert again.status_code == 200
+    assert again.json()["published"] == 0
+    assert len(again.json()["skipped"]) == 2
+
+    for key in keys:
+        await client.post(
+            f"/api/portal/catalog/products/{key}/unpublish",
+            headers=admin_headers,
+            json={"revoke_permissions": False},
+        )
+        await client.delete(f"/api/portal/meta/resources/{key}", headers=admin_headers)
 
 
 @pytest.mark.asyncio

@@ -238,6 +238,9 @@ class MetaService:
 
     @classmethod
     async def delete_resource(cls, resource_key: str) -> bool:
+        from app.services.catalog_service import CatalogService
+
+        await CatalogService.assert_resource_deletable(resource_key)
         async with get_db_connection() as conn:
             async with conn.cursor() as cursor:
                 await cursor.execute("DELETE FROM sys_resource_meta WHERE resource_key = %s", (resource_key,))

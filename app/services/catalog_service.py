@@ -821,13 +821,66 @@ class CatalogService:
             },
         }
 
+    @staticmethod
+    def _merge_catalog_status(result: Dict[str, int], key: Optional[str], status: int) -> None:
+        if not key:
+            return
+        current = result.get(key)
+        if current == STATUS_PUBLISHED or status == STATUS_PUBLISHED:
+            result[key] = STATUS_PUBLISHED
+        elif current is None:
+            result[key] = status
+
     @classmethod
     async def get_product_status_map(cls) -> Dict[str, int]:
         async with get_db_connection() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
-                await cursor.execute("SELECT product_key, status FROM data_products")
+                await cursor.execute(
+                    """
+                    SELECT p.product_key, p.status, pr.resource_key
+                    FROM data_products p
+                    LEFT JOIN data_product_resources pr ON pr.product_id = p.id
+                    """
+                )
                 rows = await cursor.fetchall()
-        return {r["product_key"]: r["status"] for r in rows}
+        result: Dict[str, int] = {}
+        for row in rows:
+            status = int(row["status"])
+            cls._merge_catalog_status(result, row["product_key"], status)
+            cls._merge_catalog_status(result, row.get("resource_key"), status)
+        return result
+
+    @classmethod
+    async def list_published_products_for_resource(cls, resource_key: str) -> List[Dict[str, Any]]:
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                await cursor.execute(
+                    """
+                    SELECT DISTINCT p.product_key, p.display_name
+                    FROM data_products p
+                    INNER JOIN data_product_resources pr ON pr.product_id = p.id
+                    WHERE pr.resource_key = %s AND p.status = %s
+                    ORDER BY p.product_key
+                    """,
+                    (resource_key, STATUS_PUBLISHED),
+                )
+                return await cursor.fetchall()
+
+    @classmethod
+    async def assert_resource_deletable(cls, resource_key: str) -> None:
+        products = await cls.list_published_products_for_resource(resource_key)
+        if not products:
+            return
+        if len(products) == 1:
+            p = products[0]
+            name = (p.get("display_name") or p["product_key"]).strip()
+            raise ValueError(f"资源已上架至目录产品「{name}」，请先从目录下架后再删除")
+        labels = [
+            (p.get("display_name") or p["product_key"]).strip()
+            for p in products[:3]
+        ]
+        suffix = f"等 {len(products)} 个" if len(products) > 3 else ""
+        raise ValueError(f"资源已上架至目录产品（{'、'.join(labels)}{suffix}），请先从目录下架后再删除")
 
     @classmethod
     def _validate_publishable_row(cls, row: Dict[str, Any]) -> None:
@@ -1172,6 +1225,58 @@ class CatalogService:
                     "reason": str(e),
                 })
         return {"published": published, "skipped": skipped, "total": len(rows)}
+
+    @classmethod
+    async def batch_publish_from_resources(
+        cls,
+        resource_keys: List[str],
+        *,
+        user: Dict,
+    ) -> Dict[str, Any]:
+        unique_keys: List[str] = []
+        seen: Set[str] = set()
+        for raw in resource_keys:
+            key = str(raw).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique_keys.append(key)
+        if not unique_keys:
+            raise ValueError("请至少选择一个有效资源")
+
+        status_map = await cls.get_product_status_map()
+        published = 0
+        skipped: List[Dict[str, str]] = []
+        for key in unique_keys:
+            config = await MetaService.get_config(key)
+            if not config:
+                skipped.append({"product_key": key, "display_name": key, "reason": "资源不存在"})
+                continue
+            display_name = config.resource_name or key
+            if config.resource_group.strip().lower() == "system":
+                skipped.append({
+                    "product_key": key,
+                    "display_name": display_name,
+                    "reason": "系统内置资源不可发布到目录",
+                })
+                continue
+            if status_map.get(key) == STATUS_PUBLISHED:
+                skipped.append({
+                    "product_key": key,
+                    "display_name": display_name,
+                    "reason": "已上架，无需重复发布",
+                })
+                continue
+            try:
+                await cls.upsert_from_resource(key, user=user, publish=True)
+                published += 1
+            except ValueError as e:
+                skipped.append({
+                    "product_key": key,
+                    "display_name": display_name,
+                    "reason": str(e),
+                })
+        return {"published": published, "skipped": skipped, "total": len(unique_keys)}
 
     @classmethod
     async def _get_product_resource_keys(cls, product_id: int) -> List[str]:

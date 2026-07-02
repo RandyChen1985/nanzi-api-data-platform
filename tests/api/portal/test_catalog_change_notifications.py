@@ -157,6 +157,11 @@ async def test_resource_change_notifies_product_owner(
     assert mark.status_code == 200
     assert mark.json()["unread"] == data["unread"] - 1
 
+    await client.post(
+        f"/api/portal/catalog/products/{resource_key}/unpublish",
+        headers=admin_headers,
+        json={"revoke_permissions": False},
+    )
     await client.delete(f"/api/portal/meta/resources/{resource_key}", headers=admin_headers)
 
 
@@ -200,4 +205,9 @@ async def test_resource_change_skips_notify_when_owner_is_operator(
     matching = [i for i in notes.json()["items"] if i["resource_key"] == resource_key]
     assert matching == []
 
+    await client.post(
+        f"/api/portal/catalog/products/{resource_key}/unpublish",
+        headers=admin_headers,
+        json={"revoke_permissions": False},
+    )
     await client.delete(f"/api/portal/meta/resources/{resource_key}", headers=admin_headers)
