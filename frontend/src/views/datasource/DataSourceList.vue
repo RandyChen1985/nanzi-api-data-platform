@@ -34,7 +34,53 @@ const showEditDialog = ref(false)
 const showTestDialog = ref(false)
 const testingItem = ref<DataSource | null>(null)
 
-const formData = ref({
+type SqlServerExtraParams = {
+  encrypt: boolean
+  trust_server_certificate: boolean
+  odbc_driver: string
+}
+
+type DataSourceForm = {
+  source_name: string
+  source_type: string
+  host: string
+  port: number
+  database_name: string
+  username: string
+  password: string
+  extra_params: SqlServerExtraParams
+  description: string
+  status: number
+}
+
+const DEFAULT_SQLSERVER_EXTRA_PARAMS: SqlServerExtraParams = {
+  encrypt: false,
+  trust_server_certificate: true,
+  odbc_driver: 'ODBC Driver 18 for SQL Server',
+}
+
+const booleanParam = (value: unknown, fallback: boolean): boolean => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true
+    if (value.toLowerCase() === 'false') return false
+  }
+  return fallback
+}
+
+const normalizeSqlServerExtraParams = (value?: Record<string, unknown> | null): SqlServerExtraParams => ({
+  encrypt: booleanParam(value?.encrypt, DEFAULT_SQLSERVER_EXTRA_PARAMS.encrypt),
+  trust_server_certificate: booleanParam(
+    value?.trust_server_certificate,
+    DEFAULT_SQLSERVER_EXTRA_PARAMS.trust_server_certificate,
+  ),
+  odbc_driver:
+    typeof value?.odbc_driver === 'string' && value.odbc_driver.trim()
+      ? value.odbc_driver.trim()
+      : DEFAULT_SQLSERVER_EXTRA_PARAMS.odbc_driver,
+})
+
+const formData = ref<DataSourceForm>({
   source_name: '',
   source_type: 'clickhouse',
   host: '',
@@ -42,6 +88,7 @@ const formData = ref({
   database_name: '',
   username: '',
   password: '',
+  extra_params: { ...DEFAULT_SQLSERVER_EXTRA_PARAMS },
   description: '',
   status: 1,
 })
@@ -163,6 +210,7 @@ const resetForm = () => {
     database_name: '',
     username: '',
     password: '',
+    extra_params: { ...DEFAULT_SQLSERVER_EXTRA_PARAMS },
     description: '',
     status: 1,
   }
@@ -198,6 +246,7 @@ const openCopyDialog = (item: DataSource) => {
     database_name: item.database_name || '',
     username: item.username || '',
     password: '',
+    extra_params: normalizeSqlServerExtraParams(item.extra_params),
     description: item.description
       ? `${item.description}（复制自 ${item.source_name}）`
       : `复制自 ${item.source_name}`,
@@ -215,6 +264,7 @@ const openEditDialog = (item: DataSource) => {
     database_name: item.database_name || '',
     username: item.username || '',
     password: '',
+    extra_params: normalizeSqlServerExtraParams(item.extra_params),
     description: item.description || '',
     status: item.status,
   }
@@ -232,8 +282,17 @@ const closeDialogs = () => {
   formError.value = ''
 }
 
+const closeTestDialog = () => {
+  showTestDialog.value = false
+  testResult.value = null
+  testingItem.value = null
+}
+
 const updatePort = () => {
   formData.value.port = defaultPortForType(formData.value.source_type)
+  if (formData.value.source_type === 'sqlserver') {
+    formData.value.extra_params = normalizeSqlServerExtraParams(formData.value.extra_params)
+  }
 }
 
 const saveDataSource = async () => {
@@ -260,6 +319,11 @@ const saveDataSource = async () => {
   try {
     const payload: Record<string, unknown> = { ...formData.value }
     if (editingId.value && !payload.password) delete payload.password
+    if (payload.source_type === 'sqlserver') {
+      payload.extra_params = normalizeSqlServerExtraParams(formData.value.extra_params)
+    } else {
+      delete payload.extra_params
+    }
 
     if (editingId.value) {
       await axios.put(`/api/portal/datasource/datasources/${editingId.value}`, payload)
@@ -354,6 +418,16 @@ const testConnection = async (item: DataSource) => {
   } finally {
     testingConnection.value = false
   }
+}
+
+const testEditingConnection = () => {
+  if (!editingId.value || testingConnection.value) return
+  const savedItem = datasources.value.find((item) => item.id === editingId.value)
+  if (!savedItem) {
+    formError.value = '未找到已保存的数据源配置'
+    return
+  }
+  testConnection(savedItem)
 }
 
 const saveReorder = async () => {
@@ -787,23 +861,74 @@ onMounted(() => {
                   placeholder="用途说明，便于团队识别"
                 />
               </div>
+
+              <div v-if="formData.source_type === 'sqlserver'" class="md:col-span-2 border border-gray-200 rounded-lg p-4 space-y-4 bg-gray-50/60">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <p class="text-sm font-medium text-gray-800">SQL Server 高级连接参数</p>
+                    <p class="text-xs text-gray-500 mt-0.5">用于 ODBC Driver、TLS 与证书兼容配置</p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                    <div>
+                      <p class="text-sm font-medium text-gray-700">Encrypt</p>
+                      <p class="text-xs text-gray-500">加密连接</p>
+                    </div>
+                    <Switch v-model="formData.extra_params.encrypt" />
+                  </div>
+
+                  <div class="flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2.5">
+                    <div>
+                      <p class="text-sm font-medium text-gray-700">TrustServerCertificate</p>
+                      <p class="text-xs text-gray-500">信任服务端证书</p>
+                    </div>
+                    <Switch v-model="formData.extra_params.trust_server_certificate" />
+                  </div>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">ODBC Driver</label>
+                  <input
+                    v-model="formData.extra_params.odbc_driver"
+                    type="text"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="ODBC Driver 18 for SQL Server"
+                  />
+                </div>
+              </div>
             </div>
 
             <div v-if="formError" class="bg-red-50 text-red-700 p-3 rounded-lg text-sm border border-red-200">
               {{ formError }}
             </div>
 
-            <div class="flex justify-end gap-3 pt-2 border-t border-gray-100">
-              <button type="button" class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="closeDialogs">
-                取消
-              </button>
-              <button
-                type="submit"
-                :disabled="submitting"
-                class="px-5 py-2 text-sm bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {{ submitting ? '保存中...' : '保存' }}
-              </button>
+            <div class="flex flex-col gap-3 pt-2 border-t border-gray-100 sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-h-9">
+                <button
+                  v-if="showEditDialog"
+                  type="button"
+                  :disabled="testingConnection || submitting"
+                  class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg disabled:opacity-50"
+                  @click="testEditingConnection"
+                >
+                  <PlayIcon class="w-4 h-4" />
+                  {{ testingConnection ? '测试中...' : '测试已保存配置' }}
+                </button>
+              </div>
+              <div class="flex justify-end gap-3">
+                <button type="button" class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50" @click="closeDialogs">
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  :disabled="submitting"
+                  class="px-5 py-2 text-sm bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {{ submitting ? '保存中...' : '保存' }}
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -815,7 +940,7 @@ onMounted(() => {
       <div
         v-if="showTestDialog"
         class="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-black/50"
-        @click.self="closeDialogs"
+        @click.self="closeTestDialog"
       >
         <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6 text-center">
           <h3 class="text-lg font-bold text-gray-900 mb-1">连接测试</h3>
@@ -839,7 +964,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <button type="button" class="mt-4 w-full px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" @click="closeDialogs">
+          <button type="button" class="mt-4 w-full px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" @click="closeTestDialog">
             关闭
           </button>
         </div>

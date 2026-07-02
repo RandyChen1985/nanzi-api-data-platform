@@ -7,6 +7,7 @@ export interface DataSource {
   database_name?: string | null
   username?: string | null
   password?: string | null
+  extra_params?: Record<string, unknown> | null
   description?: string | null
   sort_order?: number
   status: number
