@@ -143,7 +143,26 @@ def test_build_sqlserver_dsn():
     assert "SERVER=sql.example.com,1433" in dsn
     assert "DATABASE=warehouse" in dsn
     assert "UID=sa" in dsn
+    assert "Encrypt=no" in dsn
     assert "TrustServerCertificate=yes" in dsn
+
+
+def test_build_sqlserver_dsn_encrypt_enabled():
+    from types import SimpleNamespace
+    from app.services.pool_manager import DataSourcePoolManager
+
+    ds = SimpleNamespace(
+        host="sql.example.com",
+        port=1433,
+        database_name="warehouse",
+        username="sa",
+        password="secret",
+        extra_params={"encrypt": True, "trust_server_certificate": False},
+    )
+    with patch("app.services.pool_manager.aioodbc", MagicMock()):
+        dsn = DataSourcePoolManager._build_sqlserver_dsn(ds)
+    assert "Encrypt=yes" in dsn
+    assert "TrustServerCertificate" not in dsn
 
 
 @pytest.mark.asyncio

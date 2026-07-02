@@ -196,6 +196,8 @@ class DataSourcePoolManager:
 
         driver = extra.get("odbc_driver") or "ODBC Driver 18 for SQL Server"
         trust = extra.get("trust_server_certificate", True)
+        # Driver 18 默认 Encrypt=yes，旧版 SQL Server 常因 TLS 不兼容报 unsupported protocol
+        encrypt = extra.get("encrypt", False)
         host = datasource.host
         port = int(datasource.port or 1433)
         server = f"{host},{port}" if port else host
@@ -210,6 +212,7 @@ class DataSourcePoolManager:
             parts.append(f"UID={datasource.username}")
         if datasource.password:
             parts.append(f"PWD={datasource.password}")
+        parts.append(f"Encrypt={'yes' if encrypt else 'no'}")
         if trust:
             parts.append("TrustServerCertificate=yes")
         return ";".join(parts)
