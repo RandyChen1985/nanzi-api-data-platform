@@ -58,6 +58,20 @@ async def _run_connection_test(datasource, pool):
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported source type: {datasource.source_type}")
 
+
+def _format_connection_error(datasource, exc: Exception) -> str:
+    message = str(exc)
+    if datasource.source_type == "sqlserver" and "unsupported protocol" in message.lower():
+        return (
+            f"{message}\n\n"
+            "诊断：客户端已经进入 SQL Server TLS 握手阶段，但当前协议被 ODBC/OpenSSL 拒绝。"
+            "如果页面已关闭 Encrypt 且仍报此错，通常是 SQL Server 服务端强制加密，"
+            "或服务端只支持 TLS 1.0/1.1。\n"
+            "处理建议：优先让 SQL Server 开启 TLS 1.2/升级补丁；临时方案可在本机安装 "
+            "ODBC Driver 17 for SQL Server，并把 ODBC Driver 改为 “ODBC Driver 17 for SQL Server” 后重试。"
+        )
+    return message
+
 @router.get("/datasources", response_model=List[DataSourceResponse])
 async def list_datasources(
     status: Optional[str] = None,
@@ -127,7 +141,7 @@ async def test_datasource_connection_with_config(
         return {"status": "success", "message": "Connection successful"}
     except Exception as e:
         logger.error(f"Connection test failed: {e}")
-        return {"status": "failed", "message": str(e)}
+        return {"status": "failed", "message": _format_connection_error(request, e)}
     finally:
         if pool is not None:
             try:
@@ -234,4 +248,4 @@ async def test_datasource_connection(
         return {"status": "success", "message": "Connection successful"}
     except Exception as e:
         logger.error(f"Connection test failed: {e}")
-        return {"status": "failed", "message": str(e)}
+        return {"status": "failed", "message": _format_connection_error(datasource, e)}

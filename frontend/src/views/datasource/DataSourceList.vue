@@ -59,6 +59,9 @@ const DEFAULT_SQLSERVER_EXTRA_PARAMS: SqlServerExtraParams = {
   odbc_driver: 'ODBC Driver 18 for SQL Server',
 }
 
+const SQLSERVER_DRIVER_17 = 'ODBC Driver 17 for SQL Server'
+const SQLSERVER_DRIVER_18 = 'ODBC Driver 18 for SQL Server'
+
 const booleanParam = (value: unknown, fallback: boolean): boolean => {
   if (typeof value === 'boolean') return value
   if (typeof value === 'string') {
@@ -293,6 +296,10 @@ const updatePort = () => {
   if (formData.value.source_type === 'sqlserver') {
     formData.value.extra_params = normalizeSqlServerExtraParams(formData.value.extra_params)
   }
+}
+
+const useSqlServerDriver = (driver: string) => {
+  formData.value.extra_params.odbc_driver = driver
 }
 
 const saveDataSource = async () => {
@@ -937,7 +944,25 @@ onMounted(() => {
                 </div>
 
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">ODBC Driver</label>
+                  <div class="flex items-center justify-between gap-3 mb-1">
+                    <label class="block text-sm font-medium text-gray-700">ODBC Driver</label>
+                    <div class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        class="px-2 py-1 text-xs rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        @click="useSqlServerDriver(SQLSERVER_DRIVER_17)"
+                      >
+                        Driver 17
+                      </button>
+                      <button
+                        type="button"
+                        class="px-2 py-1 text-xs rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                        @click="useSqlServerDriver(SQLSERVER_DRIVER_18)"
+                      >
+                        Driver 18
+                      </button>
+                    </div>
+                  </div>
                   <input
                     v-model="formData.extra_params.odbc_driver"
                     type="text"

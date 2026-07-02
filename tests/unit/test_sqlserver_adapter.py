@@ -183,6 +183,24 @@ def test_build_sqlserver_dsn_parses_string_booleans():
     assert "TrustServerCertificate=yes" in dsn
 
 
+def test_sqlserver_unsupported_protocol_error_has_actionable_hint():
+    from types import SimpleNamespace
+    from app.api.portal.endpoints.datasource import _format_connection_error
+
+    datasource = SimpleNamespace(source_type="sqlserver")
+    message = _format_connection_error(
+        datasource,
+        Exception(
+            "('08001', '[08001] [Microsoft][ODBC Driver 18 for SQL Server]SSL Provider: "
+            "[error:0A000102:SSL routines::unsupported protocol] (-1) (SQLDriverConnect)')"
+        ),
+    )
+
+    assert "ODBC Driver 17 for SQL Server" in message
+    assert "TLS 1.2" in message
+    assert "强制加密" in message
+
+
 @pytest.mark.asyncio
 async def test_factory_returns_sqlserver_adapter():
     from types import SimpleNamespace
