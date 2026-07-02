@@ -21,6 +21,9 @@ class DataSourceBase(BaseModel):
 class DataSourceCreate(DataSourceBase):
     pass
 
+class DataSourceConnectionTest(DataSourceBase):
+    source_id: Optional[int] = Field(None, description="Existing data source ID for password fallback")
+
 class DataSourceUpdate(BaseModel):
     source_name: Optional[str] = None
     source_type: Optional[str] = None

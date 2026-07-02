@@ -127,6 +127,23 @@ class DataSourcePoolManager:
     _pools: Dict[int, any] = {}
 
     @staticmethod
+    def _json_bool(val: Any, default: bool = False) -> bool:
+        if val is True:
+            return True
+        if val is False:
+            return False
+        if val is None:
+            return default
+        if isinstance(val, str):
+            normalized = val.strip().lower()
+            if normalized in ("1", "true", "yes", "on"):
+                return True
+            if normalized in ("0", "false", "no", "off"):
+                return False
+            return default
+        return bool(val)
+
+    @staticmethod
     def _build_oracle_dsn(datasource: Any) -> str:
         """
         Build Oracle connect descriptor via makedsn (same semantics as yovole-yunshu-ai-agent-platform).
@@ -147,17 +164,8 @@ class DataSourcePoolManager:
             extra = {}
         extra = extra or {}
 
-        def _json_bool(val: Any) -> bool:
-            if val is True:
-                return True
-            if val is False or val is None:
-                return False
-            if isinstance(val, str):
-                return val.strip().lower() in ("1", "true", "yes", "on")
-            return bool(val)
-
         explicit_service = extra.get("service_name")
-        use_db_as_service = _json_bool(extra.get("oracle_use_service_name")) or _json_bool(
+        use_db_as_service = DataSourcePoolManager._json_bool(extra.get("oracle_use_service_name")) or DataSourcePoolManager._json_bool(
             extra.get("use_service_name")
         )
 
@@ -195,9 +203,9 @@ class DataSourcePoolManager:
         extra = extra or {}
 
         driver = extra.get("odbc_driver") or "ODBC Driver 18 for SQL Server"
-        trust = extra.get("trust_server_certificate", True)
+        trust = DataSourcePoolManager._json_bool(extra.get("trust_server_certificate"), True)
         # Driver 18 默认 Encrypt=yes，旧版 SQL Server 常因 TLS 不兼容报 unsupported protocol
-        encrypt = extra.get("encrypt", False)
+        encrypt = DataSourcePoolManager._json_bool(extra.get("encrypt"), False)
         host = datasource.host
         port = int(datasource.port or 1433)
         server = f"{host},{port}" if port else host
@@ -249,6 +257,19 @@ class DataSourcePoolManager:
         cls._pools[source_id] = pool
         logger.info(f"Created connection pool for data source {source_id} ({datasource.source_name})")
         return pool
+
+    @classmethod
+    async def create_ephemeral_pool(cls, datasource: Any):
+        """Create a non-cached connection pool for testing current form values."""
+        if datasource.source_type == "clickhouse":
+            return await cls._create_clickhouse_pool(datasource)
+        if datasource.source_type == "mysql":
+            return await cls._create_mysql_pool(datasource)
+        if datasource.source_type == "oracle":
+            return await cls._create_oracle_pool(datasource)
+        if datasource.source_type == "sqlserver":
+            return await cls._create_sqlserver_pool(datasource)
+        raise NotImplementedError(f"Unsupported data source type: {datasource.source_type}")
     
     @classmethod
     async def _create_oracle_pool(cls, datasource):

@@ -317,13 +317,7 @@ const saveDataSource = async () => {
   formError.value = ''
 
   try {
-    const payload: Record<string, unknown> = { ...formData.value }
-    if (editingId.value && !payload.password) delete payload.password
-    if (payload.source_type === 'sqlserver') {
-      payload.extra_params = normalizeSqlServerExtraParams(formData.value.extra_params)
-    } else {
-      delete payload.extra_params
-    }
+    const payload = buildFormPayload()
 
     if (editingId.value) {
       await axios.put(`/api/portal/datasource/datasources/${editingId.value}`, payload)
@@ -340,6 +334,17 @@ const saveDataSource = async () => {
   } finally {
     submitting.value = false
   }
+}
+
+const buildFormPayload = () => {
+  const payload: Record<string, unknown> = { ...formData.value }
+  if (editingId.value && !payload.password) delete payload.password
+  if (payload.source_type === 'sqlserver') {
+    payload.extra_params = normalizeSqlServerExtraParams(formData.value.extra_params)
+  } else {
+    delete payload.extra_params
+  }
+  return payload
 }
 
 const applyStatusChange = async (item: DataSource, newStatus: number) => {
@@ -420,14 +425,57 @@ const testConnection = async (item: DataSource) => {
   }
 }
 
-const testEditingConnection = () => {
+const testEditingConnection = async () => {
   if (!editingId.value || testingConnection.value) return
-  const savedItem = datasources.value.find((item) => item.id === editingId.value)
-  if (!savedItem) {
-    formError.value = '未找到已保存的数据源配置'
+  if (!formData.value.source_name.trim()) {
+    formError.value = '请输入数据源名称'
     return
   }
-  testConnection(savedItem)
+  if (!formData.value.host.trim()) {
+    formError.value = '请输入主机地址'
+    return
+  }
+  if (!formData.value.port) {
+    formError.value = '请输入端口号'
+    return
+  }
+
+  testingItem.value = {
+    id: editingId.value,
+    source_name: formData.value.source_name,
+    source_type: formData.value.source_type,
+    host: formData.value.host,
+    port: formData.value.port,
+    database_name: formData.value.database_name,
+    username: formData.value.username,
+    extra_params: formData.value.extra_params,
+    description: formData.value.description,
+    status: formData.value.status,
+  }
+  testingConnection.value = true
+  testResult.value = null
+  showTestDialog.value = true
+  formError.value = ''
+
+  try {
+    const payload = {
+      ...buildFormPayload(),
+      source_id: editingId.value,
+    }
+    const res = await axios.post('/api/portal/datasource/datasources/test-connection', payload)
+    testResult.value = {
+      success: res.data.status === 'success',
+      message: res.data.message,
+    }
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } }; message?: string }
+    testResult.value = {
+      success: false,
+      message: err.response?.data?.detail || err.message || '请求失败',
+    }
+  } finally {
+    testingConnection.value = false
+  }
 }
 
 const saveReorder = async () => {
@@ -914,7 +962,7 @@ onMounted(() => {
                   @click="testEditingConnection"
                 >
                   <PlayIcon class="w-4 h-4" />
-                  {{ testingConnection ? '测试中...' : '测试已保存配置' }}
+                  {{ testingConnection ? '测试中...' : '测试当前配置' }}
                 </button>
               </div>
               <div class="flex justify-end gap-3">
