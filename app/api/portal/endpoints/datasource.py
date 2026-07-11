@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from typing import List, Optional, Dict
 import asyncio
 import inspect
 from types import SimpleNamespace
-from app.schemas.datasource import DataSourceCreate, DataSourceUpdate, DataSourceResponse, DataSourceConnectionTest
+from app.schemas.datasource import (
+    DataSourceCreate, DataSourceUpdate, DataSourceResponse, DataSourceConnectionTest,
+    DbProfileTaskResponse, DbTableProfileResponse, TableProfileIgnorePayload
+)
 from app.services.datasource_service import DataSourceService
+from app.services.db_profile_service import DbProfileService
 from app.core.dependencies import require_admin, require_api_key, require_permission
 import logging
 
@@ -249,3 +253,74 @@ async def test_datasource_connection(
     except Exception as e:
         logger.error(f"Connection test failed: {e}")
         return {"status": "failed", "message": _format_connection_error(datasource, e)}
+
+
+@router.post("/datasources/{source_id}/profile", response_model=DbProfileTaskResponse)
+async def trigger_datasource_profile(
+    source_id: int,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_permission("element:datasource:edit"))
+):
+    """
+    触发数据源元数据智能摸排分析任务（异步后台运行）
+    """
+    try:
+        task = await DbProfileService.trigger_profiling_task(source_id, background_tasks)
+        return task
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to trigger profiling task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/datasources/{source_id}/profile-task", response_model=Optional[DbProfileTaskResponse])
+async def get_datasource_profile_task(
+    source_id: int,
+    user: dict = Depends(require_permission("element:datasource:edit"))
+):
+    """
+    获取数据源当前的摸排进度状态
+    """
+    try:
+        task = await DbProfileService.get_task_status(source_id)
+        return task
+    except Exception as e:
+        logger.error(f"Failed to get profiling task status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/datasources/{source_id}/table-profiles", response_model=List[DbTableProfileResponse])
+async def list_datasource_table_profiles(
+    source_id: int,
+    user: dict = Depends(require_api_key)
+):
+    """
+    获取数据源的表画像画像草稿列表（支持元数据导入查看，所以允许 require_api_key 访问）
+    """
+    try:
+        profiles = await DbProfileService.list_table_profiles(source_id)
+        return profiles
+    except Exception as e:
+        logger.error(f"Failed to list table profiles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/datasources/{source_id}/table-profiles/ignore")
+async def toggle_table_profile_ignore(
+    source_id: int,
+    payload: TableProfileIgnorePayload,
+    user: dict = Depends(require_permission("element:datasource:edit"))
+):
+    """
+    手动修改指定物理表的忽略状态
+    """
+    try:
+        res = await DbProfileService.toggle_ignore(source_id, payload.table_name, payload.is_ignored)
+        if not res:
+            raise HTTPException(status_code=404, detail="Table profile not found")
+        return {"status": "success", "message": "修改成功", "data": res}
+    except Exception as e:
+        logger.error(f"Failed to toggle table profile ignore: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

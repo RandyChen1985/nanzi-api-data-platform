@@ -48,7 +48,8 @@
 | `/api/portal/meta/*`      | `test_permission_system.py` | 数据源表结构元数据获取 (已验证角色权限) | ✅ 通过 | 2026-01-28   |
 | `/api/portal/datasource/*`| `test_datasource_sort.py`, `test_datasource_sqlserver.py` | **数据源 CRUD、排序、SQL Server 类型与连接测试（Mock）** | ✅ 通过 | 2026-07-01   |
 | `/api/portal/meta/v2/*`   | `test_meta_v2.py`           | **语义化元数据管理 (V2) CRUD (修复指标/关系编辑按钮缺失)、AI 智能发现指标、YAML 生成、血缘分析、导入表名过滤** | ✅ 通过 | 2026-03-17   |
-| `/api/portal/meta/resources/{key}/versions` | `test_resource_versions.py` | **资源版本历史、差异对比、回滚** | ✅ 通过 | 2026-07-01   |
+| `/api/portal/meta/resources/{key}/versions` | `test_resource_versions.py` | **资源配置版本历史、差异对比、回滚** | ✅ 通过 | 2026-07-01   |
+| `/api/portal/datasource/datasources/{id}/profile` 等 | (Manual/UI Test) | **数据源智能摸排分析 (Table Profiling)、异步串行采样与 LLM 画像生成、忽略特定资产** | ⏳ 待验 | 2026-07-11   |
 
 ## 9. 数据产品目录 (Data Product Catalog)
 
@@ -88,6 +89,7 @@
 | `db-prod/V33-branding-config.sql` | `test_branding_settings_service.py`, `test_platform_settings.py` | 品牌版权个性化配置与公开接口 | ⏳ 待验 | 2026-07-01 |
 | `db-prod/V34-wecom-notify.sql` | `test_wecom_notification_service.py`, `test_platform_settings.py` | 企微群机器人审批通知 | ⏳ 待验 | 2026-07-01 |
 | `db-prod/V35-branding-copyright.sql` | `test_branding_settings_service.py` | 登录页底部版权文案配置 | ⏳ 待验 | 2026-07-01 |
+| `db-prod/V36-add-datasource-profiling.sql` | 手动 | 数据源摸排任务表 `db_profile_tasks` 与表画像草稿表 `db_table_profiles` | ⏳ 待验 | 2026-07-11 |
 
 | `/api/portal/system/logs` | `test_system_logs.py`    | 系统配置日志、维护日志查询              | ✅ 通过 | 2026-01-27   |
 

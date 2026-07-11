@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
 import draggable from 'vuedraggable'
 import axios from '@/utils/axios'
 import Toast from '@/components/Toast.vue'
@@ -123,6 +123,9 @@ const confirmDialog = ref({
   onConfirm: () => {},
 })
 
+const openMore = ref<number | null>(null)
+const toggleMore = (id: number, e: MouseEvent) => { e.stopPropagation(); openMore.value = openMore.value === id ? null : id }
+
 const toast = ref({ show: false, message: '', type: 'info' as 'success' | 'error' | 'warning' | 'info', key: 0 })
 const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
   toast.value = { show: true, message, type, key: toast.value.key + 1 }
@@ -186,6 +189,7 @@ const fetchDatasources = async () => {
   try {
     const res = await axios.get('/api/portal/datasource/datasources')
     datasources.value = res.data
+    await loadTaskStatuses()
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
     showToast(err.response?.data?.detail || '获取数据源列表失败', 'error')
@@ -531,9 +535,186 @@ const copyConnectionHint = async (item: DataSource) => {
   }
 }
 
+// 智能摸排任务状态管理
+const profilingTasks = ref<Record<number, { status: number; total_tables: number; processed_tables: number; current_table?: string; error_message?: string }>>({})
+const pollingIntervals = reactive<Record<number, any>>({})
+
+const loadTaskStatuses = async () => {
+  for (const item of datasources.value) {
+    try {
+      const res = await axios.get(`/api/portal/datasource/datasources/${item.id}/profile-task`)
+      if (res.data) {
+        profilingTasks.value[item.id] = res.data
+        if (res.data.status === 1) {
+          startPolling(item.id)
+        }
+      }
+    } catch {
+      // 忽略
+    }
+  }
+}
+
+const startPolling = (configId: number) => {
+  if (pollingIntervals[configId]) return
+  pollingIntervals[configId] = setInterval(async () => {
+    try {
+      const res = await axios.get(`/api/portal/datasource/datasources/${configId}/profile-task`)
+      if (res.data) {
+        profilingTasks.value[configId] = res.data
+        if (res.data.status !== 1) {
+          clearInterval(pollingIntervals[configId])
+          delete pollingIntervals[configId]
+          showToast(`数据源摸排完成！`, 'success')
+        }
+      } else {
+        clearInterval(pollingIntervals[configId])
+        delete pollingIntervals[configId]
+      }
+    } catch {
+      clearInterval(pollingIntervals[configId])
+      delete pollingIntervals[configId]
+    }
+  }, 2000)
+}
+
+const requestProfiling = (item: DataSource) => {
+  openConfirm({
+    title: '确认启动智能摸排',
+    message: `智能摸排功能将对数据源 “${item.source_name}” 下所有的表 and 视图进行结构分析与数据采样，并调用大模型生成中文业务备注名、表用途和分类标签以辅助元数据导入。注意：逐表处理可能需要一些时间，且每个表的分析都需要消耗大模型的 Token。您确认启动吗？`,
+    type: 'warning',
+    confirmText: '确认启动',
+    onConfirm: () => {
+      confirmDialog.value.show = false
+      triggerProfiling(item)
+    }
+  })
+}
+
+const triggerProfiling = async (item: DataSource) => {
+  try {
+    const res = await axios.post(`/api/portal/datasource/datasources/${item.id}/profile`)
+    showToast('已提交后台分析摸排任务，串行处理大模型分析中', 'success')
+    profilingTasks.value[item.id] = res.data
+    startPolling(item.id)
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '启动摸排失败', 'error')
+  }
+}
+
+// 查看摸排分析结果 Modal 状态
+const showProfilesTarget = ref<DataSource | null>(null)
+const viewTableProfiles = ref<any[]>([])
+const loadingViewProfiles = ref(false)
+const profilesSearchQuery = ref('')
+const selectedProfileTag = ref<string | null>(null)
+const isTagsExpanded = ref(false)
+const expandedTables = ref<Record<string, boolean>>({})
+
+const openTableProfiles = async (item: DataSource) => {
+  showProfilesTarget.value = item
+  loadingViewProfiles.value = true
+  viewTableProfiles.value = []
+  profilesSearchQuery.value = ''
+  selectedProfileTag.value = null
+  isTagsExpanded.value = false
+  expandedTables.value = {}
+  try {
+    const res = await axios.get(`/api/portal/datasource/datasources/${item.id}/table-profiles`)
+    viewTableProfiles.value = res.data || []
+  } catch {
+    showToast('获取摸排结果失败', 'error')
+  } finally {
+    loadingViewProfiles.value = false
+  }
+}
+
+const closeTableProfiles = () => {
+  showProfilesTarget.value = null
+  viewTableProfiles.value = []
+}
+
+const toggleTableExpand = (tableName: string) => {
+  expandedTables.value[tableName] = !expandedTables.value[tableName]
+}
+
+const toggleProfileTag = (tag: string) => {
+  if (selectedProfileTag.value === tag) {
+    selectedProfileTag.value = null
+  } else {
+    selectedProfileTag.value = tag
+    const idx = availableTags.value.findIndex((t: any) => t.name === tag)
+    if (idx >= 8) {
+      isTagsExpanded.value = true
+    }
+  }
+}
+
+const availableTags = computed(() => {
+  const counts: Record<string, number> = {}
+  viewTableProfiles.value.forEach((p: any) => {
+    if (p.ai_tags && Array.isArray(p.ai_tags)) {
+      p.ai_tags.forEach((t: string) => {
+        if (t && t.trim()) {
+          const cleanTag = t.trim()
+          counts[cleanTag] = (counts[cleanTag] || 0) + 1
+        }
+      })
+    }
+  })
+  return Object.entries(counts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+})
+
+const filteredViewProfiles = computed(() => {
+  let list = viewTableProfiles.value
+
+  if (selectedProfileTag.value) {
+    list = list.filter((p: any) => p.ai_tags && p.ai_tags.includes(selectedProfileTag.value))
+  }
+
+  if (!profilesSearchQuery.value.trim()) return list
+  const q = profilesSearchQuery.value.trim().toLowerCase()
+  return list.filter((p: any) =>
+    p.table_name.toLowerCase().includes(q) ||
+    (p.ai_term && p.ai_term.toLowerCase().includes(q)) ||
+    (p.ai_description && p.ai_description.toLowerCase().includes(q)) ||
+    (p.ai_tags && p.ai_tags.some((tag: string) => tag.toLowerCase().includes(q)))
+  )
+})
+
+const togglingIgnore = ref<Record<string, boolean>>({})
+
+const toggleProfileIgnore = async (profile: any) => {
+  if (!showProfilesTarget.value) return
+  const configId = showProfilesTarget.value.id
+  const tableName = profile.table_name
+  const nextVal = profile.is_ignored === 1 ? 0 : 1
+
+  togglingIgnore.value[tableName] = true
+  try {
+    await axios.put(`/api/portal/datasource/datasources/${configId}/table-profiles/ignore`, { table_name: tableName, is_ignored: nextVal })
+    profile.is_ignored = nextVal
+    showToast(`已${nextVal === 1 ? '忽略' : '启用'}表 “${tableName}”`, 'success')
+  } catch {
+    showToast('更新忽略状态失败', 'error')
+  } finally {
+    togglingIgnore.value[tableName] = false
+  }
+}
+
+const closeMore = () => { openMore.value = null }
+
 onMounted(() => {
   checkRole()
   fetchDatasources()
+  document.addEventListener('click', closeMore)
+})
+
+onUnmounted(() => {
+  Object.values(pollingIntervals).forEach((interval) => clearInterval(interval))
+  document.removeEventListener('click', closeMore)
 })
 </script>
 
@@ -663,9 +844,8 @@ onMounted(() => {
           <thead class="bg-gray-50">
             <tr>
               <th v-if="canEdit" class="w-10 px-4 py-3" />
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">名称 / 描述</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">连接信息</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">数据源信息</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型 / 连接信息</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">更新时间</th>
               <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
@@ -689,27 +869,41 @@ onMounted(() => {
                   </div>
                 </td>
                 <td class="px-6 py-4">
-                  <div class="text-sm font-semibold text-gray-900 font-mono">{{ item.source_name }}</div>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <div class="text-sm font-semibold text-gray-900 font-mono">{{ item.source_name }}</div>
+                    <span v-if="profilingTasks[item.id] && profilingTasks[item.id]?.status !== 1" class="inline-flex items-center text-[10px] px-1.5 py-0.2 rounded-full font-bold transition-all shrink-0"
+                          :class="[
+                            profilingTasks[item.id]?.status === 2 ? 'bg-green-50 text-green-600 border border-green-100' : '',
+                            profilingTasks[item.id]?.status === 3 ? 'bg-red-50 text-red-600 border border-red-100' : '',
+                          ]">
+                      <template v-if="profilingTasks[item.id]?.status === 2">
+                        摸排完成
+                      </template>
+                      <template v-else-if="profilingTasks[item.id]?.status === 3" :title="profilingTasks[item.id]?.error_message">
+                        摸排异常
+                      </template>
+                    </span>
+                  </div>
                   <div class="text-xs text-gray-500 truncate max-w-xs mt-0.5">{{ item.description || '暂无描述' }}</div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <span
-                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold"
-                    :class="dataSourceTypeClass(item.source_type)"
-                  >
-                    {{ DATA_SOURCE_TYPE_LABELS[item.source_type] || item.source_type }}
-                  </span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                  <button
-                    type="button"
-                    class="text-left group/conn"
-                    title="点击复制连接摘要"
-                    @click="copyConnectionHint(item)"
-                  >
-                    <div class="font-mono text-xs text-gray-800 group-hover/conn:text-blue-600">{{ item.host }}:{{ item.port }}</div>
-                    <div class="text-xs text-gray-400">{{ item.database_name || 'default' }} · {{ item.username || '无用户名' }}</div>
-                  </button>
+                  <div class="flex flex-col items-start gap-1">
+                    <span
+                      class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                      :class="dataSourceTypeClass(item.source_type)"
+                    >
+                      {{ DATA_SOURCE_TYPE_LABELS[item.source_type] || item.source_type }}
+                    </span>
+                    <button
+                      type="button"
+                      class="text-left group/conn mt-0.5"
+                      title="点击复制连接摘要"
+                      @click="copyConnectionHint(item)"
+                    >
+                      <div class="font-mono text-xs text-gray-800 group-hover/conn:text-blue-600">{{ item.host }}:{{ item.port }}</div>
+                      <div class="text-xs text-gray-400">{{ item.database_name || 'default' }} · {{ item.username || '无用户名' }}</div>
+                    </button>
+                  </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="flex items-center gap-2">
@@ -723,50 +917,91 @@ onMounted(() => {
                     </span>
                   </div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
-                  {{ formatDate(item.updated_at) }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-right">
-                  <div class="flex justify-end items-center gap-1">
-                    <button
-                      v-if="canEdit"
-                      type="button"
-                      class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-md"
-                      title="测试连接"
-                      @click="testConnection(item)"
-                    >
-                      <PlayIcon class="w-3.5 h-3.5" />
-                      测试
-                    </button>
-                    <button
-                      v-if="canEdit"
-                      type="button"
-                      class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md"
-                      title="复制新建"
-                      @click="openCopyDialog(item)"
-                    >
-                      <DocumentDuplicateIcon class="w-3.5 h-3.5" />
-                      复制
-                    </button>
-                    <button
-                      v-if="canEdit"
-                      type="button"
-                      class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md"
-                      @click="openEditDialog(item)"
-                    >
-                      <PencilSquareIcon class="w-3.5 h-3.5" />
-                      编辑
-                    </button>
-                    <button
-                      v-if="canEdit"
-                      type="button"
-                      class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md"
-                      @click="confirmDelete(item)"
-                    >
-                      <TrashIcon class="w-3.5 h-3.5" />
-                      删除
-                    </button>
-                    <span v-if="!canEdit" class="text-xs text-gray-400">只读</span>
+                <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{{ formatDate(item.updated_at) }}</td>
+                <td class="px-6 py-4 text-right">
+                  <div class="flex flex-col items-end gap-1.5">
+                    <div class="flex justify-end items-center gap-1.5">
+                      <button
+                        v-if="canEdit"
+                        type="button"
+                        class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95 shrink-0"
+                        title="测试连接"
+                        @click="testConnection(item)"
+                      >
+                        <PlayIcon class="w-3.5 h-3.5" />
+                        测试
+                      </button>
+                      <button
+                        v-if="canEdit"
+                        type="button"
+                        class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95 shrink-0"
+                        @click="openEditDialog(item)"
+                      >
+                        <PencilSquareIcon class="w-3.5 h-3.5" />
+                        编辑
+                      </button>
+                      <!-- 更多下拉（click toggle） -->
+                      <div v-if="canEdit" class="relative" @click.stop>
+                        <button
+                          type="button"
+                          class="inline-flex items-center gap-0.5 px-2 py-1 text-xs font-medium bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95"
+                          :class="openMore === item.id ? 'text-gray-700 border-gray-300 bg-gray-50' : 'text-gray-500'"
+                          @click="toggleMore(item.id, $event)"
+                        >
+                          更多
+                          <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === item.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                        <div
+                          v-if="openMore === item.id"
+                          class="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+                        >
+                          <!-- 摸排 -->
+                          <button
+                            type="button"
+                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
+                            :class="profilingTasks[item.id]?.status === 1 || item.status !== 1 ? 'text-gray-300 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'"
+                            :disabled="profilingTasks[item.id]?.status === 1 || item.status !== 1"
+                            @click="requestProfiling(item); openMore = null"
+                          >
+                            <CircleStackIcon class="w-3.5 h-3.5 shrink-0" :class="profilingTasks[item.id]?.status === 1 ? 'animate-spin' : ''" />
+                            {{ profilingTasks[item.id]?.status === 1 ? '摸排中...' : '启动摸排' }}
+                          </button>
+                          <!-- 画像（仅摸排完成/异常时显示） -->
+                          <button
+                            v-if="profilingTasks[item.id]?.status === 2 || profilingTasks[item.id]?.status === 3"
+                            type="button"
+                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
+                            @click="openTableProfiles(item); openMore = null"
+                          >
+                            <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
+                            查看画像
+                          </button>
+                          <div class="h-px bg-gray-100 mx-2 my-1" />
+                          <button
+                            type="button"
+                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+                            @click="openCopyDialog(item); openMore = null"
+                          >
+                            <DocumentDuplicateIcon class="w-3.5 h-3.5 shrink-0" />
+                            复制新建
+                          </button>
+                          <div class="h-px bg-gray-100 mx-2 my-1" />
+                          <button
+                            type="button"
+                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+                            @click="confirmDelete(item); openMore = null"
+                          >
+                            <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                      <span v-if="!canEdit" class="text-xs text-gray-400">只读</span>
+                    </div>
+                    <!-- 摸排进行中进度 -->
+                    <div v-if="profilingTasks[item.id]?.status === 1" class="text-[10px] text-blue-500 font-mono font-medium animate-pulse mt-0.5 max-w-[280px] truncate" :title="`正在分析表: ${profilingTasks[item.id]?.current_table}`">
+                      摸排中 {{ Math.round(((profilingTasks[item.id]?.processed_tables || 0) / (profilingTasks[item.id]?.total_tables || 1)) * 100) }}% · {{ profilingTasks[item.id]?.current_table || '等待中...' }}
+                    </div>
                   </div>
                 </td>
               </tr>
@@ -776,19 +1011,41 @@ onMounted(() => {
             <tr v-for="item in filteredDatasources" :key="item.id" class="hover:bg-gray-50/80">
               <td v-if="canEdit" class="px-4 py-4" />
               <td class="px-6 py-4">
-                <div class="text-sm font-semibold text-gray-900 font-mono">{{ item.source_name }}</div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <div class="text-sm font-semibold text-gray-900 font-mono">{{ item.source_name }}</div>
+                  <span v-if="profilingTasks[item.id] && profilingTasks[item.id]?.status !== 1" class="inline-flex items-center text-[10px] px-1.5 py-0.2 rounded-full font-bold transition-all shrink-0"
+                        :class="[
+                          profilingTasks[item.id]?.status === 2 ? 'bg-green-50 text-green-600 border border-green-100' : '',
+                          profilingTasks[item.id]?.status === 3 ? 'bg-red-50 text-red-600 border border-red-100' : '',
+                        ]">
+                    <template v-if="profilingTasks[item.id]?.status === 2">
+                      摸排完成
+                    </template>
+                    <template v-else-if="profilingTasks[item.id]?.status === 3" :title="profilingTasks[item.id]?.error_message">
+                      摸排异常
+                    </template>
+                  </span>
+                </div>
                 <div class="text-xs text-gray-500 truncate max-w-xs mt-0.5">{{ item.description || '暂无描述' }}</div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold" :class="dataSourceTypeClass(item.source_type)">
-                  {{ DATA_SOURCE_TYPE_LABELS[item.source_type] || item.source_type }}
-                </span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <button type="button" class="text-left" title="点击复制连接摘要" @click="copyConnectionHint(item)">
-                  <div class="font-mono text-xs text-gray-800">{{ item.host }}:{{ item.port }}</div>
-                  <div class="text-xs text-gray-400">{{ item.database_name || 'default' }} · {{ item.username || '无用户名' }}</div>
-                </button>
+                <div class="flex flex-col items-start gap-1">
+                  <span
+                    class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
+                    :class="dataSourceTypeClass(item.source_type)"
+                  >
+                    {{ DATA_SOURCE_TYPE_LABELS[item.source_type] || item.source_type }}
+                  </span>
+                  <button
+                    type="button"
+                    class="text-left group/conn mt-0.5"
+                    title="点击复制连接摘要"
+                    @click="copyConnectionHint(item)"
+                  >
+                    <div class="font-mono text-xs text-gray-800 group-hover/conn:text-blue-600">{{ item.host }}:{{ item.port }}</div>
+                    <div class="text-xs text-gray-400">{{ item.database_name || 'default' }} · {{ item.username || '无用户名' }}</div>
+                  </button>
+                </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <div class="flex items-center gap-2">
@@ -797,21 +1054,77 @@ onMounted(() => {
                 </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{{ formatDate(item.updated_at) }}</td>
-              <td class="px-6 py-4 whitespace-nowrap text-right">
-                <div class="flex justify-end items-center gap-1">
-                  <button v-if="canEdit" type="button" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-md" @click="testConnection(item)">
-                    <PlayIcon class="w-3.5 h-3.5" /> 测试
-                  </button>
-                  <button v-if="canEdit" type="button" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md" title="复制新建" @click="openCopyDialog(item)">
-                    <DocumentDuplicateIcon class="w-3.5 h-3.5" /> 复制
-                  </button>
-                  <button v-if="canEdit" type="button" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md" @click="openEditDialog(item)">
-                    <PencilSquareIcon class="w-3.5 h-3.5" /> 编辑
-                  </button>
-                  <button v-if="canEdit" type="button" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md" @click="confirmDelete(item)">
-                    <TrashIcon class="w-3.5 h-3.5" /> 删除
-                  </button>
-                  <span v-if="!canEdit" class="text-xs text-gray-400">只读</span>
+              <td class="px-6 py-4 text-right">
+                <div class="flex flex-col items-end gap-1.5">
+                  <div class="flex justify-end items-center gap-1.5">
+                    <button v-if="canEdit" type="button" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95 shrink-0" @click="testConnection(item)">
+                      <PlayIcon class="w-3.5 h-3.5" /> 测试
+                    </button>
+                    <button v-if="canEdit" type="button" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95 shrink-0" @click="openEditDialog(item)">
+                      <PencilSquareIcon class="w-3.5 h-3.5" /> 编辑
+                    </button>
+                    <!-- 更多下拉（click toggle） -->
+                    <div v-if="canEdit" class="relative" @click.stop>
+                      <button
+                        type="button"
+                        class="inline-flex items-center gap-0.5 px-2 py-1 text-xs font-medium bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95"
+                        :class="openMore === item.id ? 'text-gray-700 border-gray-300 bg-gray-50' : 'text-gray-500'"
+                        @click="toggleMore(item.id, $event)"
+                      >
+                        更多
+                        <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === item.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                      <div
+                        v-if="openMore === item.id"
+                        class="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+                      >
+                        <!-- 摸排 -->
+                        <button
+                          type="button"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
+                          :class="profilingTasks[item.id]?.status === 1 || item.status !== 1 ? 'text-gray-300 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'"
+                          :disabled="profilingTasks[item.id]?.status === 1 || item.status !== 1"
+                          @click="requestProfiling(item); openMore = null"
+                        >
+                          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" :class="profilingTasks[item.id]?.status === 1 ? 'animate-spin' : ''" />
+                          {{ profilingTasks[item.id]?.status === 1 ? '摸排中...' : '启动摸排' }}
+                        </button>
+                        <!-- 画像（仅摸排完成/异常时显示） -->
+                        <button
+                          v-if="profilingTasks[item.id]?.status === 2 || profilingTasks[item.id]?.status === 3"
+                          type="button"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
+                          @click="openTableProfiles(item); openMore = null"
+                        >
+                          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
+                          查看画像
+                        </button>
+                        <div class="h-px bg-gray-100 mx-2 my-1" />
+                        <button
+                          type="button"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+                          @click="openCopyDialog(item); openMore = null"
+                        >
+                          <DocumentDuplicateIcon class="w-3.5 h-3.5 shrink-0" />
+                          复制新建
+                        </button>
+                        <div class="h-px bg-gray-100 mx-2 my-1" />
+                        <button
+                          type="button"
+                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+                          @click="confirmDelete(item); openMore = null"
+                        >
+                          <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                    <span v-if="!canEdit" class="text-xs text-gray-400">只读</span>
+                  </div>
+                  <!-- 摸排进行中进度 -->
+                  <div v-if="profilingTasks[item.id]?.status === 1" class="text-[10px] text-blue-500 font-mono font-medium animate-pulse mt-0.5 max-w-[280px] truncate" :title="`正在分析表: ${profilingTasks[item.id]?.current_table}`">
+                    摸排中 {{ Math.round(((profilingTasks[item.id]?.processed_tables || 0) / (profilingTasks[item.id]?.total_tables || 1)) * 100) }}% · {{ profilingTasks[item.id]?.current_table || '等待中...' }}
+                  </div>
                 </div>
               </td>
             </tr>
@@ -1075,6 +1388,244 @@ onMounted(() => {
           <button type="button" class="mt-4 w-full px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" @click="closeTestDialog">
             关闭
           </button>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 智能摸排结果查看 Drawer/Modal -->
+    <Teleport to="body">
+      <div v-if="showProfilesTarget" class="fixed inset-0 z-[9990] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div @click="closeTableProfiles" class="fixed inset-0 bg-black/50 transition-opacity" aria-hidden="true"></div>
+
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+          <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full border border-gray-100">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">🤖</span>
+                <div>
+                  <h3 class="text-base font-black text-gray-900">数据源摸排资产列表: {{ showProfilesTarget.source_name }}</h3>
+                  <p class="text-xs text-gray-500 mt-0.5">展示已通过大模型分析出的物理表/视图之业务备注与字段结构画像</p>
+                </div>
+              </div>
+              <button @click="closeTableProfiles" class="text-gray-400 hover:text-gray-600 transition-colors text-xl font-bold p-1">
+                ✕
+              </button>
+            </div>
+
+            <div class="p-6 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+              <!-- 资产分析概览面板 -->
+              <div v-if="!loadingViewProfiles && viewTableProfiles.length > 0" class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50/50 p-4 rounded-xl border border-gray-100 shrink-0">
+                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
+                  <span class="text-xl p-2 bg-indigo-50 rounded-lg text-indigo-600 select-none">📊</span>
+                  <div class="min-w-0">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">摸排资产总数</div>
+                    <div class="text-base font-black text-gray-800">{{ viewTableProfiles.length }} <span class="text-[10px] text-gray-400 font-normal">个</span></div>
+                  </div>
+                </div>
+                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
+                  <span class="text-xl p-2 bg-blue-50 rounded-lg text-blue-600 select-none">📁</span>
+                  <div class="min-w-0">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">物理表</div>
+                    <div class="text-base font-black text-gray-800">
+                      {{ viewTableProfiles.filter(p => p.table_type !== 'view').length }}
+                      <span class="text-[10px] text-gray-400 font-normal">张</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
+                  <span class="text-xl p-2 bg-amber-50 rounded-lg text-amber-600 select-none">👁️</span>
+                  <div class="min-w-0">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">虚拟视图</div>
+                    <div class="text-base font-black text-gray-800">
+                      {{ viewTableProfiles.filter(p => p.table_type === 'view').length }}
+                      <span class="text-[10px] text-gray-400 font-normal">个</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
+                  <span class="text-xl p-2 bg-emerald-50 rounded-lg text-emerald-600 select-none">🏷️</span>
+                  <div class="min-w-0">
+                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">字段画像总数</div>
+                    <div class="text-base font-black text-gray-800">
+                      {{ viewTableProfiles.reduce((acc, p) => acc + (p.columns_profile?.length || 0), 0) }}
+                      <span class="text-[10px] text-gray-400 font-normal">个</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 搜索框 -->
+              <div class="relative w-full">
+                <input
+                  v-model="profilesSearchQuery"
+                  class="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:bg-white"
+                  placeholder="过滤表名、备注或标签分类..."
+                >
+                <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+              </div>
+
+              <!-- 快速标签过滤 -->
+              <div v-if="availableTags.length > 0" class="flex flex-wrap items-center gap-1.5 pt-1">
+                <span class="text-xs font-bold text-gray-400 mr-1.5 select-none">快速过滤:</span>
+                <button
+                  @click="selectedProfileTag = null"
+                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1', !selectedProfileTag ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20' : 'bg-gray-100 border-gray-200/50 hover:bg-gray-200/50 text-gray-600']"
+                >
+                  <span>全部</span>
+                  <span :class="['text-[9px] px-1 py-0.2 rounded-full font-bold', !selectedProfileTag ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500']">{{ viewTableProfiles.length }}</span>
+                </button>
+                <button
+                  v-for="tag in (isTagsExpanded ? availableTags : availableTags.slice(0, 8))"
+                  :key="tag.name"
+                  @click="toggleProfileTag(tag.name)"
+                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5', selectedProfileTag === tag.name ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20' : 'bg-gray-100 border-gray-200/50 hover:bg-gray-200/50 text-gray-600']"
+                >
+                  <span>{{ tag.name }}</span>
+                  <span :class="['text-[9px] px-1 py-0.2 rounded-full font-bold', selectedProfileTag === tag.name ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500']">{{ tag.count }}</span>
+                </button>
+                <button
+                  v-if="availableTags.length > 8"
+                  @click="isTagsExpanded = !isTagsExpanded"
+                  class="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-all cursor-pointer flex items-center gap-0.5"
+                >
+                  <span>{{ isTagsExpanded ? '收起 ▴' : `更多 (${availableTags.length - 8}) ▾` }}</span>
+                </button>
+              </div>
+
+              <div v-if="loadingViewProfiles" class="py-12 text-center text-sm text-gray-400">
+                正在读取摸排资产结果...
+              </div>
+              <div v-else-if="filteredViewProfiles.length === 0" class="py-12 text-center text-gray-400 text-sm italic bg-gray-50 rounded-lg">
+                暂无匹配的摸排表记录。
+              </div>
+              <div v-else class="space-y-3">
+                <div 
+                  v-for="profile in filteredViewProfiles" 
+                  :key="profile.table_name"
+                  class="border border-gray-200/80 rounded-xl overflow-hidden shadow-sm hover:border-gray-300 transition-all"
+                  :class="profile.is_ignored === 1 ? 'opacity-70 bg-gray-50/40' : 'bg-white'"
+                >
+                  <!-- 卡片头部 -->
+                  <div 
+                    @click="toggleTableExpand(profile.table_name)"
+                    class="p-4 bg-gray-50/30 hover:bg-gray-50/80 transition-colors flex items-center justify-between cursor-pointer"
+                  >
+                    <div class="min-w-0 flex-1 space-y-1">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <!-- 忽略/启用开关 -->
+                        <div class="flex items-center gap-1.5 mr-1" @click.stop>
+                          <button 
+                            @click="toggleProfileIgnore(profile)"
+                            :disabled="togglingIgnore[profile.table_name]"
+                            class="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+                            :class="profile.is_ignored === 1 ? 'bg-red-500' : 'bg-emerald-500'"
+                            :title="profile.is_ignored === 1 ? '该表已在分析中被忽略，点击恢复' : '该表已在分析中启用，点击忽略'"
+                          >
+                            <span 
+                              class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                              :class="profile.is_ignored === 1 ? 'translate-x-3' : 'translate-x-0'"
+                            ></span>
+                          </button>
+                          <span class="text-[9px] font-black tracking-wide" :class="profile.is_ignored === 1 ? 'text-red-500' : 'text-emerald-600'">
+                            {{ profile.is_ignored === 1 ? '已忽略' : '已启用' }}
+                          </span>
+                        </div>
+
+                        <span class="font-mono text-sm font-bold text-gray-900">{{ profile.table_name }}</span>
+                        <span 
+                          class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                          :class="profile.table_type === 'view' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'"
+                        >
+                          {{ profile.table_type === 'view' ? '视图' : '表' }}
+                        </span>
+                        <span v-if="profile.status === 3" class="px-1.5 py-0.5 rounded text-[9px] bg-red-50 text-red-500 font-bold">分析失败</span>
+                      </div>
+
+                      <div v-if="profile.ai_term" class="text-xs text-indigo-600 font-bold">
+                        💡 业务备注：{{ profile.ai_term }}
+                      </div>
+
+                      <!-- 置信度与判定原因展示 -->
+                      <div class="flex items-center gap-3 text-[11px] mt-1.5 flex-wrap">
+                        <div class="flex items-center gap-1 font-bold shrink-0">
+                          <span class="text-gray-400">业务可信度:</span>
+                          <span 
+                            class="px-1 py-0.2 rounded text-[9px] font-black"
+                            :class="profile.confidence_score >= 80 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/50' : profile.confidence_score >= 60 ? 'bg-amber-50 text-amber-700 border border-amber-200/50' : 'bg-red-50 text-red-700 border border-red-200/50'"
+                          >
+                            {{ profile.confidence_score }} 分
+                          </span>
+                          <span v-if="profile.is_temporary === 1" class="px-1.5 py-0.2 rounded text-[9px] bg-amber-100 text-amber-800 font-bold border border-amber-200/40">低价值临时表</span>
+                        </div>
+                        <div v-if="profile.confidence_reason" class="text-gray-400 truncate max-w-[400px]" :title="profile.confidence_reason">
+                          原因: {{ profile.confidence_reason }}
+                        </div>
+                      </div>
+
+                      <div v-if="profile.ai_description" class="text-xs text-gray-500 leading-relaxed mt-1">
+                        用途：{{ profile.ai_description }}
+                      </div>
+
+                      <!-- 标签 -->
+                      <div v-if="profile.ai_tags && profile.ai_tags.length > 0" class="flex flex-wrap gap-1 mt-1.5">
+                        <span 
+                          v-for="tag in profile.ai_tags" 
+                          :key="tag"
+                          @click.stop="toggleProfileTag(tag)"
+                          :class="['px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors cursor-pointer', selectedProfileTag === tag ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200']"
+                        >
+                          {{ tag }}
+                        </span>
+                      </div>
+                    </div>
+                    <!-- 右侧箭头图标 -->
+                    <div class="text-gray-400 ml-4 shrink-0 transition-transform duration-200" :class="expandedTables[profile.table_name] ? 'rotate-90' : ''">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <!-- 展开的字段列表 -->
+                  <div v-if="expandedTables[profile.table_name]" class="border-t border-gray-100 p-4 bg-white space-y-2">
+                    <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">字段画像定义 (Columns Profile)</div>
+                    
+                    <div v-if="!profile.columns_profile || profile.columns_profile.length === 0" class="text-xs text-gray-400 italic">
+                      暂无字段分析信息
+                    </div>
+                    <div v-else class="border border-gray-100 rounded-xl overflow-hidden">
+                      <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr class="bg-gray-50 border-b border-gray-100 text-gray-400 font-bold uppercase">
+                            <th class="px-4 py-2 border-r border-gray-100 w-1/4">物理字段</th>
+                            <th class="px-4 py-2 border-r border-gray-100 w-1/4">业务术语/中文名</th>
+                            <th class="px-4 py-2">业务含义说明</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 text-gray-700">
+                          <tr v-for="col in profile.columns_profile" :key="col.name" class="hover:bg-gray-50 bg-white">
+                            <td class="px-4 py-2 border-r border-gray-100 font-mono font-bold">{{ col.name }}</td>
+                            <td class="px-4 py-2 border-r border-gray-100 text-indigo-600 font-medium">{{ col.term || '-' }}</td>
+                            <td class="px-4 py-2 text-gray-500 leading-normal">{{ col.desc || '-' }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end">
+              <button @click="closeTableProfiles" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-xs font-bold transition-colors">
+                关闭窗口
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </Teleport>

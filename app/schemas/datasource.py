@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 class DataSourceBase(BaseModel):
@@ -60,3 +60,49 @@ class DataSourceInternal(DataSourceBase):
 
     class Config:
         from_attributes = True
+
+
+class DbProfileTaskResponse(BaseModel):
+    id: int
+    connection_id: int
+    status: int
+    total_tables: int
+    processed_tables: int
+    current_table: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DbTableProfileResponse(BaseModel):
+    id: int
+    connection_id: int
+    table_name: str
+    table_type: str
+    engine: Optional[str] = None
+    ddl: Optional[str] = None
+    sample_data: Optional[Any] = None
+    ai_term: Optional[str] = None
+    ai_description: Optional[str] = None
+    ai_tags: Optional[List[str]] = None
+    columns_profile: Optional[List[Dict[str, Any]]] = None
+    status: int
+    error_message: Optional[str] = None
+    confidence_score: int
+    is_temporary: int
+    is_ignored: int
+    confidence_reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TableProfileIgnorePayload(BaseModel):
+    table_name: str
+    is_ignored: int
+

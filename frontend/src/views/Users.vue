@@ -104,25 +104,57 @@
                 </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ formatDate(user.created_at) }}</td>
-              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                <div class="flex justify-end items-center gap-3">
-                  <button @click="viewApiKey(user)" class="text-indigo-600 hover:text-indigo-900 transition-colors p-1" title="查看 API Key">
-                    <KeyIcon class="w-5 h-5" />
-                  </button>
-                  <button @click="editUser(user)" class="text-blue-600 hover:text-blue-900 transition-colors p-1" title="编辑用户">
-                    <PencilSquareIcon class="w-5 h-5" />
-                  </button>
-                  <button @click="regenerateApiKey(user)" class="text-yellow-600 hover:text-yellow-900 transition-colors p-1" title="重置 API Key">
-                    <ArrowPathIcon class="w-5 h-5" />
-                  </button>
-                  <button 
-                    v-if="user.user_name !== 'admin'"
-                    @click="confirmDelete(user)" 
-                    class="text-red-600 hover:text-red-900 transition-colors p-1" 
-                    title="删除用户"
+              <td class="px-6 py-4 whitespace-nowrap text-right">
+                <div class="flex justify-end items-center gap-1.5">
+                  <button
+                    @click="editUser(user)"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95"
                   >
-                    <TrashIcon class="w-5 h-5" />
+                    <PencilSquareIcon class="w-3.5 h-3.5" /> 编辑
                   </button>
+                  <!-- 更多下拉 -->
+                  <div class="relative" @click.stop>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-0.5 px-2 py-1 text-xs font-medium bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95"
+                      :class="openMore === user.id ? 'text-gray-700 bg-gray-50 border-gray-300' : 'text-gray-500'"
+                      @click="toggleMore(user.id, $event)"
+                    >
+                      更多
+                      <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === user.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div
+                      v-if="openMore === user.id"
+                      class="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+                        @click="viewApiKey(user); openMore = null"
+                      >
+                        <KeyIcon class="w-3.5 h-3.5 shrink-0" />
+                        查看 API Key
+                      </button>
+                      <button
+                        type="button"
+                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition-colors"
+                        @click="regenerateApiKey(user); openMore = null"
+                      >
+                        <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
+                        重置 API Key
+                      </button>
+                      <div v-if="user.user_name !== 'admin'" class="h-px bg-gray-100 mx-2 my-1" />
+                      <button
+                        v-if="user.user_name !== 'admin'"
+                        type="button"
+                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+                        @click="confirmDelete(user); openMore = null"
+                      >
+                        <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+                        删除用户
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -567,7 +599,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { useToast } from '../composables/useToast'
@@ -585,6 +617,10 @@ const route = useRoute()
 
 
 const activePermissionSubTab = ref<'resource' | 'ui' | 'data'>('resource')
+
+const openMore = ref<number | null>(null)
+const toggleMore = (id: number, e: MouseEvent) => { e.stopPropagation(); openMore.value = openMore.value === id ? null : id }
+const closeMore = () => { openMore.value = null }
 
 // Constants
 const availableResources = ref<any[]>([])
@@ -1216,6 +1252,11 @@ onMounted(async () => {
       /* ignore */
     }
   }
+  document.addEventListener('click', closeMore)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeMore)
 })
 
 

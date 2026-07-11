@@ -235,28 +235,47 @@
                 {{ formatDate(role.created_at) }}
               </td>
               <td class="px-4 py-3 text-right whitespace-nowrap" @click.stop>
-                <div class="inline-flex items-center gap-1">
-                  <button
-                    @click="openMemberDialog(role)"
-                    class="p-1.5 text-gray-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50"
-                    title="成员管理"
-                  >
-                    <UserPlusIcon class="w-4 h-4" />
-                  </button>
+                <div class="flex justify-end items-center gap-1.5">
                   <button
                     @click="editRole(role)"
-                    class="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50"
-                    title="编辑"
+                    class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95"
                   >
-                    <PencilSquareIcon class="w-4 h-4" />
+                    <PencilSquareIcon class="w-3.5 h-3.5" /> 编辑
                   </button>
-                  <button
-                    @click="confirmDelete(role)"
-                    class="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
-                    title="删除"
-                  >
-                    <TrashIcon class="w-4 h-4" />
-                  </button>
+                  <!-- 更多下拉 -->
+                  <div class="relative" @click.stop>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-0.5 px-2 py-1 text-xs font-medium bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 rounded-md transition-all duration-150 active:scale-95"
+                      :class="openMore === role.id ? 'text-gray-700 bg-gray-50 border-gray-300' : 'text-gray-500'"
+                      @click="toggleMore(role.id, $event)"
+                    >
+                      更多
+                      <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === role.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+                    <div
+                      v-if="openMore === role.id"
+                      class="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 transition-colors"
+                        @click="openMemberDialog(role); openMore = null"
+                      >
+                        <UserPlusIcon class="w-3.5 h-3.5 shrink-0" />
+                        成员管理
+                      </button>
+                      <div class="h-px bg-gray-100 mx-2 my-1" />
+                      <button
+                        type="button"
+                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+                        @click="confirmDelete(role); openMore = null"
+                      >
+                        <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+                        删除
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -785,7 +804,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, reactive } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
 import axios from '../utils/axios'
 import { useToast } from '../composables/useToast'
 import {
@@ -820,6 +839,10 @@ const sortBy = ref<'created_desc' | 'created_asc' | 'name_asc' | 'members_desc'>
 const viewMode = ref<'card' | 'list'>(
   (localStorage.getItem(ROLES_VIEW_MODE_KEY) as 'card' | 'list') || 'card',
 )
+
+const openMore = ref<number | null>(null)
+const toggleMore = (id: number, e: MouseEvent) => { e.stopPropagation(); openMore.value = openMore.value === id ? null : id }
+const closeMore = () => { openMore.value = null }
 
 const showEditModal = ref(false)
 const showDiscardConfirm = ref(false)
@@ -1433,6 +1456,11 @@ onMounted(() => {
   fetchRoles()
   fetchAvailableResources()
   fetchAllDataSources()
+  document.addEventListener('click', closeMore)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeMore)
 })
 </script>
 
