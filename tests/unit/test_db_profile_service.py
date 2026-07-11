@@ -1,7 +1,12 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.db_profile_service import DbProfileService, PROFILE_CANCEL_MESSAGE
+from app.services.db_profile_service import (
+    DbProfileService,
+    PROFILE_CANCEL_MESSAGE,
+    _TASK_STATUS_DONE,
+    _TASK_STATUS_RUNNING,
+)
 
 
 @pytest.mark.parametrize(
@@ -139,6 +144,40 @@ async def test_bulk_init_table_profiles_resume_skips_completed():
 
     update_sql = mock_cursor.executemany.await_args_list[0][0][0]
     assert "status != 2" in update_sql
+
+
+@pytest.mark.asyncio
+async def test_reconcile_marks_main_task_done_when_all_tables_finished():
+    mock_cursor = AsyncMock()
+    mock_cursor.rowcount = 1
+
+    # zombie reset
+    mock_cursor.fetchone.side_effect = [
+        (_TASK_STATUS_RUNNING, 100),  # task row
+    ]
+    mock_cursor.fetchall.return_value = [(2, 80), (3, 20)]  # success + failed, no pending/in_progress
+
+    changed = await DbProfileService._reconcile_profiling_task_status_with_cursor(mock_cursor, 10)
+
+    assert changed is True
+    finalize_sql = mock_cursor.execute.await_args_list[-1][0][0]
+    assert "SET status = %s" in finalize_sql or "status = %s" in finalize_sql
+    finalize_params = mock_cursor.execute.await_args_list[-1][0][1]
+    assert finalize_params[0] == _TASK_STATUS_DONE
+    assert finalize_params[1] == 100
+
+
+@pytest.mark.asyncio
+async def test_reconcile_skips_when_tables_still_pending():
+    mock_cursor = AsyncMock()
+    mock_cursor.rowcount = 0
+    mock_cursor.fetchone.return_value = (_TASK_STATUS_RUNNING, 100)
+    mock_cursor.fetchall.return_value = [(0, 5), (2, 95)]
+
+    changed = await DbProfileService._reconcile_profiling_task_status_with_cursor(mock_cursor, 10)
+
+    assert changed is False
+    assert mock_cursor.execute.await_count == 3  # zombie + task select + group by
 
 
 @pytest.mark.asyncio

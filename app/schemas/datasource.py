@@ -68,10 +68,12 @@ class DbProfileTaskResponse(BaseModel):
     status: int
     total_tables: int
     processed_tables: int
+    completed_profiles: int = 0
+    last_profiled_at: Optional[datetime] = None
     current_table: Optional[str] = None
     error_message: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

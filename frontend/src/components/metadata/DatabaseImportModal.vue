@@ -12,7 +12,13 @@ const props = defineProps<{
   initialDataSource?: string,
   existingTableNames?: string[]
 }>()
-const emit = defineEmits(['close', 'confirm'])
+const emit = defineEmits<{
+  close: []
+  confirm: [
+    | { mode: 'profile'; sourceName: string; sourceId: number; tableNames: string[] }
+    | { mode: 'ddl'; sourceName: string; ddl: string }
+  ]
+}>()
 
 const dataSources = ref<any[]>([])
 const tables = ref<any[]>([])
@@ -193,38 +199,37 @@ const toggleAll = () => {
 const handleConfirm = async () => {
   const finalTables = selectedTables.value.filter(t => !isAlreadyImported(t))
   if (!selectedSource.value || finalTables.length === 0) return
-  
+
+  if (activeTab.value === 'profile') {
+    emit('confirm', {
+      mode: 'profile',
+      sourceName: selectedSource.value.source_name,
+      sourceId: selectedSource.value.id,
+      tableNames: finalTables,
+    })
+    emit('close')
+    return
+  }
+
   loading.value = true
   try {
     let combinedDdl = ""
     for (const tableName of finalTables) {
-      const cached = tableProfiles.value.find(p => p.table_name === tableName)
-      let ddl = cached?.ddl
-      if (!ddl && selectedSource.value) {
-        try {
-          const res = await axios.get(
-            `/api/portal/datasource/datasources/${selectedSource.value.id}/table-profiles/${encodeURIComponent(tableName)}`
-          )
-          ddl = res.data?.ddl
-        } catch {
-          ddl = null
-        }
-      }
-      if (ddl) {
-        combinedDdl += ddl + "\n\n"
-      } else {
-        const res = await axios.post('/api/portal/meta/datasource/columns', { 
-          data_source: selectedSource.value.source_name, 
-          table_name: tableName 
-        })
-        const cols = res.data.columns
-        const generatedDdl = `CREATE TABLE ${tableName} (\n` + 
-                    cols.map((c: any) => `  ${c.name} ${c.type} COMMENT '${c.comment || ''}'`).join(',\n') + 
-                    `\n);\n\n`
-        combinedDdl += generatedDdl
-      }
+      const res = await axios.post('/api/portal/meta/datasource/columns', {
+        data_source: selectedSource.value.source_name,
+        table_name: tableName,
+      })
+      const cols = res.data.columns
+      const generatedDdl = `CREATE TABLE ${tableName} (\n` +
+        cols.map((c: any) => `  ${c.name} ${c.type} COMMENT '${c.comment || ''}'`).join(',\n') +
+        `\n);\n\n`
+      combinedDdl += generatedDdl
     }
-    emit('confirm', combinedDdl.trim(), selectedSource.value.source_name)
+    emit('confirm', {
+      mode: 'ddl',
+      sourceName: selectedSource.value.source_name,
+      ddl: combinedDdl.trim(),
+    })
     emit('close')
   } finally { loading.value = false }
 }
@@ -484,7 +489,7 @@ onMounted(fetchDataSources)
           class="px-10 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm flex items-center gap-2"
         >
           <ArrowPathIcon v-if="loading" class="w-4 h-4 animate-spin" />
-          <span>{{ loading ? '抓取结构中...' : `确认加载 (${selectedTables.length})` }}</span>
+          <span>{{ loading ? '抓取结构中...' : (activeTab === 'profile' ? `导入摸排画像 (${selectedTables.length})` : `确认加载 (${selectedTables.length})`) }}</span>
         </button>
       </div>
     </div>

@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 PROFILE_CANCEL_MESSAGE = "用户主动取消摸排"
 _PROFILE_INIT_BATCH_SIZE = 500
+_ZOMBIE_TABLE_STALE_MINUTES = 10
+_TASK_STATUS_DONE = 2
+_TASK_STATUS_RUNNING = 1
 _HEAVY_COLUMN_TYPE_PATTERN = re.compile(
     r"\b(BLOB|CLOB|NCLOB|LONG RAW|LONG|BYTEA|IMAGE|VARBINARY|BINARY|RAW)\b",
     re.IGNORECASE,
@@ -57,9 +60,16 @@ class DbProfileService:
                     (source_id,)
                 )
                 existing_task = await cursor.fetchone()
-                
-                if existing_task and existing_task[1] == 1:
-                    raise ValueError("当前数据源分析摸排任务正在执行中，请勿重复点击")
+
+                await DbProfileService._reconcile_profiling_task_status_with_cursor(cursor, source_id)
+                if existing_task and existing_task[1] == _TASK_STATUS_RUNNING:
+                    await cursor.execute(
+                        "SELECT status FROM db_profile_tasks WHERE connection_id = %s",
+                        (source_id,),
+                    )
+                    refreshed = await cursor.fetchone()
+                    if refreshed and refreshed[0] == _TASK_STATUS_RUNNING:
+                        raise ValueError("当前数据源分析摸排任务正在执行中，请勿重复点击")
 
                 # 3. 实例化适配器并查询数据库下所有的表/视图
                 from app.services.data_adapter.factory import get_adapter
@@ -156,10 +166,105 @@ class DbProfileService:
         return not task or task.get("status") != 1
 
     @staticmethod
-    async def get_task_status(source_id: int) -> Optional[Dict[str, Any]]:
-        """获取该数据源当前摸排任务进度与状态"""
+    async def _reconcile_profiling_task_status_with_cursor(cursor, source_id: int) -> bool:
+        """基于子表状态校正主任务；重置长时间无心跳的僵尸表。返回是否有写库变更。"""
+        await cursor.execute(
+            """
+            UPDATE db_table_profiles
+            SET status = 0, updated_at = NOW()
+            WHERE connection_id = %s AND status = 1
+              AND updated_at < DATE_SUB(NOW(), INTERVAL %s MINUTE)
+            """,
+            (source_id, _ZOMBIE_TABLE_STALE_MINUTES),
+        )
+        changed = cursor.rowcount > 0
+
+        await cursor.execute(
+            "SELECT status, total_tables FROM db_profile_tasks WHERE connection_id = %s",
+            (source_id,),
+        )
+        task_row = await cursor.fetchone()
+        if not task_row or task_row[0] != _TASK_STATUS_RUNNING:
+            return changed
+
+        total_tables = int(task_row[1] or 0)
+        await cursor.execute(
+            """
+            SELECT status, COUNT(*) AS cnt
+            FROM db_table_profiles
+            WHERE connection_id = %s
+            GROUP BY status
+            """,
+            (source_id,),
+        )
+        counts = {row[0]: int(row[1]) for row in await cursor.fetchall()}
+        pending = counts.get(0, 0)
+        in_progress = counts.get(1, 0)
+        success = counts.get(2, 0)
+        failed = counts.get(3, 0)
+        finished = success + failed
+
+        if pending > 0 or in_progress > 0 or finished == 0:
+            return changed
+
+        processed_tables = total_tables if total_tables > 0 else finished
+        await cursor.execute(
+            """
+            UPDATE db_profile_tasks
+            SET status = %s, processed_tables = %s, current_table = NULL,
+                error_message = NULL, updated_at = NOW()
+            WHERE connection_id = %s AND status = %s
+            """,
+            (_TASK_STATUS_DONE, processed_tables, source_id, _TASK_STATUS_RUNNING),
+        )
+        if cursor.rowcount > 0:
+            changed = True
+            logger.info(
+                "[DbProfiling] Reconciled main task for source_id=%s: success=%s failed=%s total=%s",
+                source_id, success, failed, processed_tables,
+            )
+        return changed
+
+    @staticmethod
+    async def reconcile_profiling_task_status(source_id: int) -> bool:
+        """对外暴露的状态校正入口（打开数据源页/轮询任务时调用）。"""
         async with get_db_connection() as conn:
             async with conn.cursor() as cursor:
+                changed = await DbProfileService._reconcile_profiling_task_status_with_cursor(
+                    cursor, source_id
+                )
+                if changed:
+                    await conn.commit()
+                return changed
+
+    @staticmethod
+    async def get_task_status(source_id: int, reconcile: bool = True) -> Optional[Dict[str, Any]]:
+        """获取该数据源当前摸排任务进度与状态"""
+        if reconcile:
+            await DbProfileService.reconcile_profiling_task_status(source_id)
+
+        async with get_db_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM db_table_profiles
+                    WHERE connection_id = %s AND status = 2
+                    """,
+                    (source_id,),
+                )
+                completed_row = await cursor.fetchone()
+                completed_profiles = int(completed_row[0]) if completed_row else 0
+
+                await cursor.execute(
+                    """
+                    SELECT MAX(updated_at) FROM db_table_profiles
+                    WHERE connection_id = %s AND status = 2
+                    """,
+                    (source_id,),
+                )
+                last_profiled_row = await cursor.fetchone()
+                last_profiled_at = last_profiled_row[0] if last_profiled_row else None
+
                 await cursor.execute(
                     """
                     SELECT id, connection_id, status, total_tables, processed_tables,
@@ -171,13 +276,29 @@ class DbProfileService:
                 )
                 row = await cursor.fetchone()
                 if not row:
-                    return None
+                    if completed_profiles <= 0:
+                        return None
+                    return {
+                        "id": 0,
+                        "connection_id": source_id,
+                        "status": 0,
+                        "total_tables": 0,
+                        "processed_tables": completed_profiles,
+                        "completed_profiles": completed_profiles,
+                        "last_profiled_at": last_profiled_at,
+                        "current_table": None,
+                        "error_message": None,
+                        "created_at": None,
+                        "updated_at": None,
+                    }
                 return {
                     "id": row[0],
                     "connection_id": row[1],
                     "status": row[2],
                     "total_tables": row[3],
                     "processed_tables": row[4],
+                    "completed_profiles": completed_profiles,
+                    "last_profiled_at": last_profiled_at,
                     "current_table": row[5],
                     "error_message": row[6],
                     "created_at": row[7],
@@ -707,6 +828,14 @@ class DbProfileService:
                         (str(total_ex), source_id)
                     )
                     await conn.commit()
+        finally:
+            try:
+                await DbProfileService.reconcile_profiling_task_status(source_id)
+            except Exception:
+                logger.exception(
+                    "[DbProfiling] Failed to reconcile profiling task status for source_id=%s",
+                    source_id,
+                )
 
     @staticmethod
     async def _get_table_ddl(adapter, db_type: str, table_name: str, table_type: str) -> str:

@@ -536,7 +536,39 @@ const copyConnectionHint = async (item: DataSource) => {
 }
 
 // 智能摸排任务状态管理
-const profilingTasks = ref<Record<number, { status: number; total_tables: number; processed_tables: number; current_table?: string; error_message?: string }>>({})
+type ProfileTaskStatus = {
+  status: number
+  total_tables: number
+  processed_tables: number
+  completed_profiles?: number
+  last_profiled_at?: string | null
+  updated_at?: string | null
+  current_table?: string
+  error_message?: string
+}
+
+const profilingTasks = ref<Record<number, ProfileTaskStatus>>({})
+
+const profileModalTask = ref<ProfileTaskStatus | null>(null)
+
+const formatProfileTaskTime = (task?: { last_profiled_at?: string | null; updated_at?: string | null } | null) => {
+  const value = task?.last_profiled_at || task?.updated_at
+  return value ? formatDate(value) : '暂无记录'
+}
+
+const profileModalTimeLabel = computed(() => {
+  const task = profileModalTask.value
+  if (!task) return ''
+  const time = formatProfileTaskTime(task)
+  if (task.status === 1) {
+    return `摸排进行中 · 最近更新 ${time} · 已完成 ${task.completed_profiles || 0}/${task.total_tables || '?'} 张`
+  }
+  return `上次摸排 ${time} · 已完成 ${task.completed_profiles || 0} 张画像`
+})
+
+const hasViewableProfiles = (item: DataSource) => {
+  return (profilingTasks.value[item.id]?.completed_profiles || 0) > 0
+}
 const pollingIntervals = reactive<Record<number, any>>({})
 
 const isProfilingCancelled = (task?: { status?: number; error_message?: string }) => {
@@ -690,16 +722,29 @@ const openTableProfiles = async (item: DataSource) => {
   showProfilesTarget.value = item
   loadingViewProfiles.value = true
   viewTableProfiles.value = []
+  profileModalTask.value = null
   profilesSearchQuery.value = ''
   selectedProfileTag.value = null
   isTagsExpanded.value = false
   expandedTables.value = {}
   loadingProfileDetails.value = {}
   try {
-    const res = await axios.get(`/api/portal/datasource/datasources/${item.id}/table-profiles`, {
-      params: { summary: true },
-    })
-    viewTableProfiles.value = res.data || []
+    const [profilesRes, taskRes] = await Promise.all([
+      axios.get(`/api/portal/datasource/datasources/${item.id}/table-profiles`, {
+        params: { summary: true },
+      }),
+      axios.get(`/api/portal/datasource/datasources/${item.id}/profile-task`),
+    ])
+    viewTableProfiles.value = profilesRes.data || []
+    if (taskRes.data) {
+      profileModalTask.value = taskRes.data
+      profilingTasks.value[item.id] = taskRes.data
+    } else {
+      const cached = profilingTasks.value[item.id]
+      if (cached) {
+        profileModalTask.value = cached
+      }
+    }
   } catch {
     showToast('获取摸排结果失败', 'error')
   } finally {
@@ -731,6 +776,7 @@ const loadProfileDetail = async (tableName: string) => {
 const closeTableProfiles = () => {
   showProfilesTarget.value = null
   viewTableProfiles.value = []
+  profileModalTask.value = null
 }
 
 const toggleTableExpand = (tableName: string) => {
@@ -1089,15 +1135,19 @@ onUnmounted(() => {
                             <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
                             全量重跑
                           </button>
-                          <!-- 画像（仅摸排完成/异常时显示） -->
+                          <!-- 画像（已有成功画像即可查看，摸排进行中也可） -->
                           <button
-                            v-if="profilingTasks[item.id]?.status === 2 || profilingTasks[item.id]?.status === 3"
+                            v-if="hasViewableProfiles(item)"
                             type="button"
                             class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
                             @click="openTableProfiles(item); openMore = null"
                           >
                             <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
                             查看画像
+                            <span
+                              v-if="profilingTasks[item.id]?.status === 1"
+                              class="ml-auto text-[9px] text-purple-400 font-mono"
+                            >{{ profilingTasks[item.id]?.completed_profiles }}</span>
                           </button>
                           <div class="h-px bg-gray-100 mx-2 my-1" />
                           <button
@@ -1242,15 +1292,19 @@ onUnmounted(() => {
                           <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
                           全量重跑
                         </button>
-                        <!-- 画像（仅摸排完成/异常时显示） -->
+                        <!-- 画像（已有成功画像即可查看，摸排进行中也可） -->
                         <button
-                          v-if="profilingTasks[item.id]?.status === 2 || profilingTasks[item.id]?.status === 3"
+                          v-if="hasViewableProfiles(item)"
                           type="button"
                           class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
                           @click="openTableProfiles(item); openMore = null"
                         >
                           <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
                           查看画像
+                          <span
+                            v-if="profilingTasks[item.id]?.status === 1"
+                            class="ml-auto text-[9px] text-purple-400 font-mono"
+                          >{{ profilingTasks[item.id]?.completed_profiles }}</span>
                         </button>
                         <div class="h-px bg-gray-100 mx-2 my-1" />
                         <button
@@ -1569,6 +1623,7 @@ onUnmounted(() => {
                 <div>
                   <h3 class="text-base font-black text-gray-900">数据源摸排资产列表: {{ showProfilesTarget.source_name }}</h3>
                   <p class="text-xs text-gray-500 mt-0.5">展示已通过大模型分析出的物理表/视图之业务备注与字段结构画像</p>
+                  <p v-if="profileModalTimeLabel" class="text-[11px] text-indigo-600/80 font-medium mt-1">{{ profileModalTimeLabel }}</p>
                 </div>
               </div>
               <button @click="closeTableProfiles" class="text-gray-400 hover:text-gray-600 transition-colors text-xl font-bold p-1">

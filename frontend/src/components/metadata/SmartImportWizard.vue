@@ -29,6 +29,9 @@ const datasetDisplayName = ref('')
 const internalDataSource = ref('')
 const showDbImport = ref(false)
 const isAiEnabled = ref(true)
+const importSource = ref<'manual' | 'ddl' | 'profile'>('manual')
+const profileImportTags = ref<string[]>([])
+const analyzeMode = ref<'ai' | 'profile'>('ai')
 const { showToast } = useToast()
 
 // 耗时计时与中断控制
@@ -100,6 +103,69 @@ const previewData = ref<{ tables: any[] }>({
   tables: []
 })
 
+const mapToLogicType = (rawType: string): string => {
+  if (!rawType) return 'String'
+  const t = rawType.toUpperCase()
+
+  if (t.includes('CHAR') || t.includes('TEXT') || t.includes('CLOB') || t.includes('STRING')) return 'String'
+  if (t.includes('INT') || t.includes('LONG') || t.includes('SHORT') || t.includes('SMALLINT') || t.includes('BIGINT')) return 'Int64'
+  if (t.includes('FLOAT') || t.includes('DOUBLE') || t.includes('DECIMAL') || t.includes('NUMBER') || t.includes('NUMERIC') || t.includes('REAL')) return 'Float64'
+  if (t.includes('TIME') || t.includes('DATE') || t.includes('STAMP')) return 'DateTime'
+  if (t.includes('BOOL') || t.includes('BIT')) return 'Boolean'
+
+  if (['STRING', 'INT64', 'FLOAT64', 'DATETIME', 'BOOLEAN'].includes(t)) {
+    const map: Record<string, string> = {
+      STRING: 'String', INT64: 'Int64', FLOAT64: 'Float64', DATETIME: 'DateTime', BOOLEAN: 'Boolean',
+    }
+    return map[t] || 'String'
+  }
+
+  return 'String'
+}
+
+const profileToTableMeta = (profile: any, physicalCols: any[] = []) => {
+  const profileMap = Object.fromEntries(
+    (profile.columns_profile || []).map((c: any) => [c.name, c])
+  )
+
+  const columns = physicalCols.length > 0
+    ? physicalCols.map((c: any) => ({
+        physical_name: c.name,
+        term: profileMap[c.name]?.term || c.name,
+        type: mapToLogicType(c.type),
+        description: profileMap[c.name]?.desc || c.comment || '',
+        synonyms: [],
+        enums: [],
+        examples: [],
+      }))
+    : (profile.columns_profile || []).map((c: any) => ({
+        physical_name: c.name,
+        term: c.term || c.name,
+        type: 'String',
+        description: c.desc || '',
+        synonyms: [],
+        enums: [],
+        examples: [],
+      }))
+
+  return {
+    physical_name: profile.table_name,
+    term: profile.ai_term || profile.table_name,
+    description: profile.ai_description || '',
+    synonyms: profile.ai_tags || [],
+    columns,
+  }
+}
+
+const applyPreviewTables = (tables: any[]) => {
+  previewData.value = { tables }
+  if (tables.length > 0) {
+    datasetName.value = tables[0].physical_name + '_ds'
+    datasetDisplayName.value = (tables[0].term || tables[0].physical_name) + '语义库'
+  }
+  step.value = 2
+}
+
 const handleAnalyze = async () => {
   if (!ddlText.value.trim() || !isAiEnabled.value) return
   analyzing.value = true
@@ -120,40 +186,7 @@ const handleAnalyze = async () => {
     setTimeout(() => {
       const data = res.data.data
       const rawTables = data.tables || []
-      
-      // 类型映射工具函数：将数据库原生类型映射为系统逻辑类型
-      const mapToLogicType = (rawType: string): string => {
-        if (!rawType) return 'String'
-        const t = rawType.toUpperCase()
-        
-        // 1. 字符串类
-        if (t.includes('CHAR') || t.includes('TEXT') || t.includes('CLOB') || t.includes('STRING')) return 'String'
-        
-        // 2. 整数类
-        if (t.includes('INT') || t.includes('LONG') || t.includes('SHORT') || t.includes('SMALLINT') || t.includes('BIGINT')) return 'Int64'
-        
-        // 3. 数值/浮点类
-        if (t.includes('FLOAT') || t.includes('DOUBLE') || t.includes('DECIMAL') || t.includes('NUMBER') || t.includes('NUMERIC') || t.includes('REAL')) return 'Float64'
-        
-        // 4. 时间类
-        if (t.includes('TIME') || t.includes('DATE') || t.includes('STAMP')) return 'DateTime'
-        
-        // 5. 布尔类
-        if (t.includes('BOOL') || t.includes('BIT')) return 'Boolean'
-        
-        // 6. 兜底映射
-        // 如果已经是逻辑类型之一（区分大小写或不区分），则直接返回标准形式
-        if (['STRING', 'INT64', 'FLOAT64', 'DATETIME', 'BOOLEAN'].includes(t)) {
-           const map: Record<string, string> = {
-             'STRING': 'String', 'INT64': 'Int64', 'FLOAT64': 'Float64', 'DATETIME': 'DateTime', 'BOOLEAN': 'Boolean'
-           }
-           return map[t] || 'String'
-        }
-        
-        return 'String'
-      }
 
-      // 确保字段类型存在并进行规范化
       rawTables.forEach((table: any) => {
         if (table.columns) {
           table.columns.forEach((col: any) => {
@@ -162,14 +195,7 @@ const handleAnalyze = async () => {
         }
       })
 
-      previewData.value = {
-        tables: rawTables
-      }
-      if (previewData.value.tables.length > 0) {
-        datasetName.value = previewData.value.tables[0].physical_name + '_ds'
-        datasetDisplayName.value = previewData.value.tables[0].term + '语义库'
-      }
-      step.value = 2
+      applyPreviewTables(rawTables)
       analyzing.value = false
       stopFakeProgress()
       stopElapsedTimer()
@@ -188,12 +214,72 @@ const handleAnalyze = async () => {
   }
 }
 
-const handleConfirmDbDdl = (ddl: string, sourceName?: string) => {
-  ddlText.value = ddl
-  if (sourceName) {
-    internalDataSource.value = sourceName
+const loadFromProfiles = async (payload: {
+  sourceName: string
+  sourceId: number
+  tableNames: string[]
+}) => {
+  analyzeMode.value = 'profile'
+  analyzing.value = true
+  progress.value = 0
+  progressStatus.value = '正在加载摸排画像...'
+  startElapsedTimer()
+
+  try {
+    const tables: any[] = []
+    const tagSet = new Set<string>()
+
+    await Promise.all(
+      payload.tableNames.map(async (tableName) => {
+        const [profileRes, columnsRes] = await Promise.all([
+          request.get(
+            `/api/portal/datasource/datasources/${payload.sourceId}/table-profiles/${encodeURIComponent(tableName)}`
+          ),
+          request.post('/api/portal/meta/datasource/columns', {
+            data_source: payload.sourceName,
+            table_name: tableName,
+          }),
+        ])
+        const profile = profileRes.data
+        ;(profile.ai_tags || []).forEach((tag: string) => {
+          if (tag?.trim()) tagSet.add(tag.trim())
+        })
+        tables.push(profileToTableMeta(profile, columnsRes.data?.columns || []))
+      })
+    )
+
+    tables.sort((a, b) => payload.tableNames.indexOf(a.physical_name) - payload.tableNames.indexOf(b.physical_name))
+    profileImportTags.value = Array.from(tagSet).slice(0, 8)
+    importSource.value = 'profile'
+    progress.value = 100
+    progressStatus.value = '摸排画像已就绪'
+    applyPreviewTables(tables)
+    showToast('已使用摸排画像，跳过 AI 重算', 'success')
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '加载摸排画像失败', 'error')
+  } finally {
+    analyzing.value = false
+    stopElapsedTimer()
   }
+}
+
+const handleDbImportConfirm = async (
+  payload:
+    | { mode: 'profile'; sourceName: string; sourceId: number; tableNames: string[] }
+    | { mode: 'ddl'; sourceName: string; ddl: string }
+) => {
   showDbImport.value = false
+  internalDataSource.value = payload.sourceName
+  profileImportTags.value = []
+  importSource.value = payload.mode === 'profile' ? 'profile' : 'ddl'
+
+  if (payload.mode === 'profile') {
+    await loadFromProfiles(payload)
+    return
+  }
+
+  ddlText.value = payload.ddl
+  analyzeMode.value = 'ai'
 }
 
 const handleSave = async () => {
@@ -213,9 +299,11 @@ const handleSave = async () => {
       const dsRes = await metadataV2Api.createDataset({
         name: datasetName.value.trim(),
         display_name: datasetDisplayName.value.trim() || previewData.value.tables[0].term + '语义库',
-        description: 'AI 自动导入生成',
+        description: importSource.value === 'profile' ? '摸排画像导入' : 'AI 自动导入生成',
         data_source: internalDataSource.value || props.dataSource || 'default',
-        tags: ['AI-Import']
+        tags: importSource.value === 'profile'
+          ? ['Profile-Import', ...profileImportTags.value]
+          : ['AI-Import'],
       })
       datasetId = (dsRes.data as any).id
     }
@@ -240,6 +328,9 @@ const handleClose = () => {
   step.value = 1
   ddlText.value = ''
   internalDataSource.value = ''
+  importSource.value = 'manual'
+  profileImportTags.value = []
+  analyzeMode.value = 'ai'
   previewData.value = { tables: [] }
   emit('close')
 }
@@ -266,7 +357,9 @@ const removeColumn = (tIdx: number, cIdx: number) => {
                </div>
             </div>
             <div>
-               <h2 class="text-2xl font-black text-gray-900 tracking-tight">AI 智能解析中...</h2>
+               <h2 class="text-2xl font-black text-gray-900 tracking-tight">
+                 {{ analyzeMode === 'profile' ? '摸排画像加载中...' : 'AI 智能解析中...' }}
+               </h2>
                <p class="text-sm text-gray-500 mt-2 font-medium">{{ progressStatus }}</p>
                <p class="text-[10px] text-indigo-400 mt-1 uppercase font-black tracking-widest animate-pulse">已耗时 {{ elapsedSeconds }} 秒</p>
             </div>
@@ -275,6 +368,7 @@ const removeColumn = (tIdx: number, cIdx: number) => {
             </div>
             <button 
               @click="handleInterrupt"
+              v-if="analyzeMode === 'ai'"
               class="px-6 py-2 border-2 border-gray-100 text-gray-400 hover:text-red-500 hover:border-red-100 hover:bg-red-50 rounded-xl text-xs font-black transition-all flex items-center gap-2 mx-auto uppercase tracking-widest"
             >
               <XMarkIcon class="w-4 h-4" /> 中断解析
@@ -453,7 +547,7 @@ const removeColumn = (tIdx: number, cIdx: number) => {
       </div>
     </div>
 
-    <DatabaseImportModal :show="showDbImport" :initial-data-source="props.dataSource" :existing-table-names="props.existingTables" @close="showDbImport = false" @confirm="handleConfirmDbDdl" />
+    <DatabaseImportModal :show="showDbImport" :initial-data-source="props.dataSource" :existing-table-names="props.existingTables" @close="showDbImport = false" @confirm="handleDbImportConfirm" />
   </div>
 </template>
 
