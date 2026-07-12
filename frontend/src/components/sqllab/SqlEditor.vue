@@ -63,6 +63,7 @@ const emit = defineEmits<{
   (e: 'open-publish'): void
   (e: 'restore-history', item: HistoryItem): void
   (e: 'delete-history', index: number): void
+  (e: 'clear-history'): void
   (e: 'toggle-sidebar'): void
   (e: 'run-empty-test'): void
   (e: 'format-sql'): void
@@ -313,6 +314,13 @@ const handleDeleteHistory = (idx: number, event: Event) => {
   event.stopPropagation()
   emit('delete-history', idx)
 }
+const handleClearHistory = (event: Event) => {
+  event.stopPropagation()
+  if (!props.history.length) return
+  if (!window.confirm(`确定清空全部 ${props.history.length} 条查询历史？此操作不可恢复。`)) return
+  emit('clear-history')
+  showHistory.value = false
+}
 const startRename = (tab: QueryTab) => {
   editingTabId.value = tab.id; editName.value = tab.name;
   nextTick(() => { document.getElementById(`tab-input-${tab.id}`)?.focus() })
@@ -492,6 +500,14 @@ defineExpose({ focus })
             <button @click="showHistory = !showHistory" class="p-1.5 text-gray-500 hover:text-blue-600"><ClockIcon class="w-4 h-4" /></button>
           </Tooltip>
           <div v-if="showHistory" class="absolute right-0 mt-2 w-96 bg-white rounded-xl shadow-2xl border z-[100] py-2 max-h-96 overflow-y-auto custom-scrollbar">
+            <div v-if="history.length > 0" class="px-4 py-2 border-b flex items-center justify-between sticky top-0 bg-white z-10">
+              <span class="text-[11px] font-bold text-gray-500">最近 {{ history.length }} 条</span>
+              <button
+                type="button"
+                class="text-[11px] font-bold text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-md transition-colors"
+                @click="handleClearHistory"
+              >清空全部</button>
+            </div>
             <div v-if="history.length === 0" class="px-4 py-8 text-center text-gray-400 text-xs italic">暂无查询历史</div>
             <div v-for="(item, idx) in history" :key="idx" @click="handleRestoreHistory(item)" 
               class="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b last:border-none group/hist">

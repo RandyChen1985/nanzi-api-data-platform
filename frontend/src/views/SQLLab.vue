@@ -604,6 +604,11 @@ const deleteHistory = (index: number) => {
   localStorage.setItem('sql_lab_history', JSON.stringify(queryHistory.value))
   showToast('已删除历史记录', 'info')
 }
+const clearAllHistory = () => {
+  queryHistory.value = []
+  localStorage.removeItem('sql_lab_history')
+  showToast('已清空全部查询历史', 'info')
+}
 
 const PREVIEW_LIMIT_OPTIONS = [50, 100, 200, 500, 1000] as const
 type PreviewLimit = (typeof PREVIEW_LIMIT_OPTIONS)[number]
@@ -1729,7 +1734,7 @@ onMounted(() => {
             :ai-loading="aiLoading" :sidebar-collapsed="sidebarCollapsed" :has-perm="hasPerm" :available-tables="availableTables" :columns-cache="columnsCache"
             class="h-full" :lab-mode="labMode" :recalled-context="currentTab?.recalledContext || []"
             :is-admin="isAdmin" :sensitive-warnings="sensitiveWarnings"
-            @create-tab="createTab" @close-tab="closeTab" @close-all-tabs="closeAllTabs" @close-other-tabs="closeOtherTabs" @update-tab-name="handleTabRename" @run-query="runQuery" @run-ai-check="runAiAction" @open-publish="openPublishModal" @restore-history="restoreHistory" @delete-history="deleteHistory" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed" @run-empty-test="runEmptyParamTest"
+            @create-tab="createTab" @close-tab="closeTab" @close-all-tabs="closeAllTabs" @close-other-tabs="closeOtherTabs" @update-tab-name="handleTabRename" @run-query="runQuery" @run-ai-check="runAiAction" @open-publish="openPublishModal" @restore-history="restoreHistory" @delete-history="deleteHistory" @clear-history="clearAllHistory" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed" @run-empty-test="runEmptyParamTest"
             @cancel-query="cancelQuery" @run-explain="runExplain" @open-saved-queries="showSavedQueries = true" @ai-edit-sql="handleAiEdit"
             @save-history-as-template="saveHistoryAsTemplate"
           />
