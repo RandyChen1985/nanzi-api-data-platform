@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import aiomysql
@@ -259,6 +259,123 @@ class LabEnhancementService:
                     ),
                 )
                 return cursor.lastrowid
+
+    @staticmethod
+    def _feedback_time_bounds(start_time: Optional[str], end_time: Optional[str]) -> tuple[str, str]:
+        now = datetime.now()
+        if start_time:
+            final_start = start_time.replace("T", " ")
+            if len(final_start) == 16:
+                final_start += ":00"
+        else:
+            final_start = (now - timedelta(days=30)).strftime("%Y-%m-%d 00:00:00")
+        if end_time:
+            final_end = end_time.replace("T", " ")
+            if len(final_end) == 16:
+                final_end += ":59"
+        else:
+            final_end = now.strftime("%Y-%m-%d %H:%M:%S")
+        return final_start, final_end
+
+    @staticmethod
+    async def list_ai_feedback(
+        viewer_user_id: int,
+        can_view_all: bool,
+        page: int = 1,
+        size: int = 20,
+        rating: Optional[int] = None,
+        user_name: Optional[str] = None,
+        source_id: Optional[int] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        include_stats: bool = False,
+    ) -> Dict[str, Any]:
+        conditions: List[str] = []
+        params: List[Any] = []
+
+        if not can_view_all:
+            conditions.append("f.user_id = %s")
+            params.append(viewer_user_id)
+        elif user_name:
+            conditions.append("u.user_name LIKE %s")
+            params.append(f"%{user_name}%")
+
+        if rating is not None:
+            conditions.append("f.rating = %s")
+            params.append(rating)
+        if source_id is not None:
+            conditions.append("f.source_id = %s")
+            params.append(source_id)
+
+        final_start, final_end = LabEnhancementService._feedback_time_bounds(start_time, end_time)
+        conditions.append("f.created_at >= %s")
+        params.append(final_start)
+        conditions.append("f.created_at <= %s")
+        params.append(final_end)
+
+        where = "WHERE " + " AND ".join(conditions)
+        base_from = """
+            FROM lab_ai_feedback f
+            LEFT JOIN api_users u ON u.id = f.user_id
+            LEFT JOIN sys_data_source ds ON ds.id = f.source_id
+        """
+
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                await cursor.execute(f"SELECT COUNT(*) AS cnt {base_from} {where}", tuple(params))
+                total_row = await cursor.fetchone()
+                total = int(total_row["cnt"] if total_row else 0)
+
+                statistics = None
+                if include_stats:
+                    await cursor.execute(
+                        f"""
+                        SELECT
+                            COUNT(*) AS total,
+                            SUM(CASE WHEN f.rating = 2 THEN 1 ELSE 0 END) AS up_count,
+                            SUM(CASE WHEN f.rating = 1 THEN 1 ELSE 0 END) AS down_count,
+                            SUM(CASE WHEN f.execution_success = 1 THEN 1 ELSE 0 END) AS exec_success_count
+                        {base_from} {where}
+                        """,
+                        tuple(params),
+                    )
+                    stat_row = await cursor.fetchone() or {}
+                    up = int(stat_row.get("up_count") or 0)
+                    down = int(stat_row.get("down_count") or 0)
+                    rated = up + down
+                    statistics = {
+                        "total": int(stat_row.get("total") or 0),
+                        "up_count": up,
+                        "down_count": down,
+                        "exec_success_count": int(stat_row.get("exec_success_count") or 0),
+                        "satisfaction_rate": round(up / rated * 100, 1) if rated else 0,
+                    }
+
+                offset = (page - 1) * size
+                list_params = list(params) + [size, offset]
+                await cursor.execute(
+                    f"""
+                    SELECT f.id, f.user_id, u.user_name, f.source_id, ds.source_name,
+                           f.prompt, f.generated_sql, f.rating, f.execution_success, f.created_at
+                    {base_from} {where}
+                    ORDER BY f.created_at DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    tuple(list_params),
+                )
+                items = await cursor.fetchall()
+
+        for item in items:
+            if item.get("created_at"):
+                item["created_at"] = item["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+
+        return {
+            "total": total,
+            "page": page,
+            "size": size,
+            "items": items,
+            "statistics": statistics,
+        }
 
     # ---------- Analysis Sessions ----------
 

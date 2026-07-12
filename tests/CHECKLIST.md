@@ -115,6 +115,8 @@
 | 日志异步并发安全   | 手动/压力测试        | 确保 Middleware 日志写入不覆盖接口自定义 BackgroundTasks  | ✅ 通过 | 2026-01-27   |
 | 大数据量分页 (5M+) | SQL 索引优化 (建议)  | 验证 (user_name, created_at) 联合索引对排序分页的加速效果 | ⏳ 待验 | 2026-01-23   |
 
+| `/api/portal/lab/ai/feedback` | `test_lab_ai_feedback.py` (unit) | AI 反馈列表、统计、权限隔离 | ⏳ 待验 | 2026-07-12   |
+
 ## 8. 部署与环境 (Deployment & Environment)
 
 | 验证项          | 验证方式          | 核心场景验证                                     | 状态   | 最近测试日期 |

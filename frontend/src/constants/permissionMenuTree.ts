@@ -42,6 +42,13 @@ export const PERMISSION_MENU_TREE: PermissionMenuNode[] = [
     ],
   },
   {
+    id: 'menu:lab:feedback',
+    label: 'AI 反馈管理',
+    children: [
+      { id: 'element:lab:feedback:manage', label: '查看全部用户反馈' },
+    ],
+  },
+  {
     id: 'menu:resources',
     label: '接口管理',
     children: [

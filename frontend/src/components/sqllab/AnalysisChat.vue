@@ -8,7 +8,7 @@ import {
   DocumentDuplicateIcon,
   CheckIcon
 } from "@heroicons/vue/24/outline";
-import MarkdownIt from "markdown-it";
+import { renderMarkdown } from "../../utils/markdown";
 import VChart from "vue-echarts";
 import { use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -43,20 +43,41 @@ const emit = defineEmits<{
   (e: "save-session", payload: { title: string; messages: Message[] }): void;
 }>();
 
-const md = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-  breaks: true,
-});
-
 const copiedId = ref<number | null>(null);
+const copiedCodeId = ref<string | null>(null);
 const copyToClipboard = (text: string, idx: number) => {
   navigator.clipboard.writeText(text);
   copiedId.value = idx;
   setTimeout(() => {
     copiedId.value = null;
   }, 2000);
+};
+
+const copyCodeBlock = (code: string, id: string) => {
+  navigator.clipboard.writeText(code);
+  copiedCodeId.value = id;
+  setTimeout(() => { copiedCodeId.value = null; }, 2000);
+};
+
+const handleMarkdownClick = (e: MouseEvent) => {
+  const btn = (e.target as HTMLElement).closest('.code-copy-btn') as HTMLElement | null;
+  if (!btn) return;
+  const wrap = btn.closest('.code-block-wrap');
+  const codeEl = wrap?.querySelector('code');
+  const id = btn.getAttribute('data-id') || '';
+  if (codeEl) copyCodeBlock(codeEl.textContent || '', id);
+};
+
+const renderMessageHtml = (content: string) => {
+  let html = renderMarkdown(content);
+  let codeIdx = 0;
+  html = html.replace(/<pre(?:[^>]*)><code class="([^"]*)">([\s\S]*?)<\/code><\/pre>/g, (_, classes, inner) => {
+    const id = `code-${codeIdx++}`;
+    const langMatch = classes.match(/language-([\w-]+)/);
+    const lang = langMatch?.[1] || 'code';
+    return `<div class="code-block-wrap"><div class="code-block-header"><span class="code-lang-tag">${lang.toUpperCase()}</span><button type="button" class="code-copy-btn" data-id="${id}">复制</button></div><pre class="hljs-code-block"><code class="${classes}">${inner}</code></pre></div>`;
+  });
+  return html;
 };
 
 
@@ -319,7 +340,8 @@ onMounted(() => {
             <div
               class="markdown-body prose prose-sm max-w-none break-words overflow-hidden"
               :class="msg.role === 'user' ? 'prose-invert' : 'prose-indigo'"
-              v-html="md.render(msg.content)"
+              @click="handleMarkdownClick"
+              v-html="renderMessageHtml(msg.content)"
             ></div>
 
             <!-- Chart Components -->
@@ -437,10 +459,112 @@ onMounted(() => {
   margin-top: 0.25em;
   margin-bottom: 0.25em;
 }
-:deep(.prose pre) {
+:deep(.prose pre:not(.hljs-code-block)) {
   margin-top: 1em;
   margin-bottom: 1em;
   padding: 0;
   border-radius: 0.75rem;
+}
+:deep(.code-block-wrap) {
+  margin: 0.85em 0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid #475569;
+  background: #0f172a;
+}
+:deep(.code-block-header) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35rem 0.75rem;
+  background: #0f172a;
+  border-bottom: 1px solid #334155;
+}
+:deep(.code-lang-tag) {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+:deep(.code-copy-btn) {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid #475569;
+  background: transparent;
+  cursor: pointer;
+}
+:deep(.code-copy-btn:hover) {
+  color: #e2e8f0;
+  border-color: #64748b;
+}
+:deep(.hljs-code-block) {
+  margin: 0 !important;
+  padding: 0.85rem 1rem !important;
+  overflow-x: auto;
+  background: #0f172a !important;
+  border-radius: 0 !important;
+  font-size: 13px;
+  line-height: 1.6;
+}
+:deep(.hljs-code-block code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre;
+  color: #e2e8f0 !important;
+  background: transparent !important;
+}
+/* 高对比度 SQL 语法色（覆盖 highlight.js 默认主题） */
+:deep(.code-block-wrap .hljs) {
+  color: #e2e8f0 !important;
+  background: transparent !important;
+}
+:deep(.code-block-wrap .hljs-keyword) { color: #7dd3fc !important; font-weight: 600; }
+:deep(.code-block-wrap .hljs-built_in) { color: #a5b4fc !important; }
+:deep(.code-block-wrap .hljs-type) { color: #a5b4fc !important; }
+:deep(.code-block-wrap .hljs-string) { color: #86efac !important; }
+:deep(.code-block-wrap .hljs-number) { color: #fde047 !important; }
+:deep(.code-block-wrap .hljs-literal) { color: #fde047 !important; }
+:deep(.code-block-wrap .hljs-comment) { color: #94a3b8 !important; font-style: italic; }
+:deep(.code-block-wrap .hljs-operator) { color: #f9a8d4 !important; }
+:deep(.code-block-wrap .hljs-punctuation) { color: #cbd5e1 !important; }
+:deep(.code-block-wrap .hljs-title) { color: #c4b5fd !important; }
+:deep(.code-block-wrap .hljs-attr) { color: #fdba74 !important; }
+:deep(.code-block-wrap .hljs-name) { color: #e2e8f0 !important; }
+:deep(.code-block-wrap .hljs-symbol) { color: #fda4af !important; }
+:deep(.prose table) {
+  width: 100%;
+  margin: 0.85em 0;
+  font-size: 12px;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+}
+:deep(.prose thead) {
+  background: #f8fafc;
+}
+:deep(.prose th) {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 700;
+  color: #334155;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
+}
+:deep(.prose td) {
+  padding: 0.5rem 0.75rem;
+  color: #475569;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+  line-height: 1.5;
+}
+:deep(.prose tbody tr:hover) {
+  background: #f8fafc;
+}
+:deep(.prose tbody tr:last-child td) {
+  border-bottom: none;
 }
 </style>
