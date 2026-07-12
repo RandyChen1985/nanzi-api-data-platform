@@ -4,7 +4,7 @@ import axios from '@/utils/axios'
 import { useToast } from '@/composables/useToast'
 import {
   MagnifyingGlassIcon, XMarkIcon, TableCellsIcon, StarIcon,
-  ClockIcon, TagIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, CheckIcon,
+  ClockIcon, TagIcon, ChevronLeftIcon, ChevronRightIcon, PlusIcon, CheckIcon, EyeIcon,
 } from '@heroicons/vue/24/outline'
 import { StarIcon as StarSolidIcon } from '@heroicons/vue/24/solid'
 import type { TableFavoriteInfo } from './TableFavoriteActions.vue'
@@ -32,7 +32,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', tables: string[]): void
   (e: 'close'): void
-  (e: 'table-preview', tableName: string): void
 }>()
 
 const { showToast } = useToast()
@@ -50,6 +49,10 @@ const tagsLoading = ref(false)
 const previewTable = ref<string | null>(null)
 const previewDetail = ref<any>(null)
 const previewLoading = ref(false)
+const expandedDataTable = ref<string | null>(null)
+const dataPreviewLoading = ref(false)
+const dataPreviewError = ref('')
+const dataPreviewData = ref<{ columns: { name: string }[]; rows: any[][] } | null>(null)
 const draftSelected = ref<string[]>([])
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
@@ -95,6 +98,11 @@ const fetchResults = async () => {
     const res = await axios.get('/api/portal/lab/table-search', { params })
     items.value = res.data.items || []
     total.value = res.data.total || 0
+    if (expandedDataTable.value && !items.value.some(i => i.table_name === expandedDataTable.value)) {
+      expandedDataTable.value = null
+      dataPreviewData.value = null
+      dataPreviewError.value = ''
+    }
     if (previewTable.value && !items.value.some(i => i.table_name === previewTable.value)) {
       previewTable.value = items.value[0]?.table_name || null
     } else if (!previewTable.value && items.value.length) {
@@ -159,6 +167,35 @@ const loadPreviewDetail = async (tableName: string) => {
 const onRowClick = (item: ExplorerTableItem) => {
   previewTable.value = item.table_name
   loadPreviewDetail(item.table_name)
+}
+
+const colName = (col: string | { name: string }) => (typeof col === 'string' ? col : col.name)
+
+const toggleDataPreview = async (tableName: string) => {
+  if (expandedDataTable.value === tableName) {
+    expandedDataTable.value = null
+    dataPreviewData.value = null
+    dataPreviewError.value = ''
+    return
+  }
+  if (!props.sourceId) return
+  expandedDataTable.value = tableName
+  dataPreviewLoading.value = true
+  dataPreviewError.value = ''
+  dataPreviewData.value = null
+  try {
+    const res = await axios.post('/api/portal/lab/preview', {
+      source_id: props.sourceId,
+      sql: `SELECT * FROM ${tableName}`,
+      params: {},
+      limit: 10,
+    })
+    dataPreviewData.value = res.data
+  } catch (e: any) {
+    dataPreviewError.value = e.response?.data?.detail || e.response?.data?.message || e.message || '预览失败'
+  } finally {
+    dataPreviewLoading.value = false
+  }
 }
 
 const confirmSelection = () => {
@@ -288,30 +325,93 @@ watch(page, fetchResults)
             <div
               v-for="item in items"
               :key="item.table_name"
-              class="px-4 py-2.5 border-b cursor-pointer transition-colors flex items-start gap-3 group"
-              :class="previewTable === item.table_name ? 'bg-indigo-50/60 border-l-2 border-l-indigo-500' : 'hover:bg-gray-50 border-l-2 border-l-transparent'"
-              @click="onRowClick(item)"
+              class="border-b"
+              :class="previewTable === item.table_name ? 'bg-indigo-50/40' : ''"
             >
-              <button
-                type="button"
-                class="mt-0.5 shrink-0 w-6 h-6 rounded-md border flex items-center justify-center transition-colors"
-                :class="isInDraft(item.table_name) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-400 hover:border-indigo-400 hover:text-indigo-600'"
-                :title="isInDraft(item.table_name) ? '移出已选' : '加入已选'"
-                @click.stop="toggleDraft(item.table_name)"
+              <div
+                class="px-4 py-2.5 cursor-pointer transition-colors flex items-start gap-3 group"
+                :class="previewTable === item.table_name ? 'border-l-2 border-l-indigo-500' : 'hover:bg-gray-50 border-l-2 border-l-transparent'"
+                @click="onRowClick(item)"
               >
-                <CheckIcon v-if="isInDraft(item.table_name)" class="w-3.5 h-3.5" />
-                <PlusIcon v-else class="w-3.5 h-3.5" />
-              </button>
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-1.5 flex-wrap">
-                  <span class="text-sm font-mono font-bold text-gray-800">{{ item.table_name }}</span>
-                  <span class="text-[9px] px-1 py-0.5 rounded font-black" :class="item.table_type === 'VIEW' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'">{{ item.table_type || 'TABLE' }}</span>
-                  <span v-if="item.confidence_score != null" class="text-[9px] px-1 py-0.5 rounded font-bold bg-green-100 text-green-700">{{ item.confidence_score }}%</span>
-                  <StarSolidIcon v-if="item.is_favorite" class="w-3.5 h-3.5 text-amber-500" />
+                <button
+                  type="button"
+                  class="mt-0.5 shrink-0 w-6 h-6 rounded-md border flex items-center justify-center transition-colors"
+                  :class="isInDraft(item.table_name) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-400 hover:border-indigo-400 hover:text-indigo-600'"
+                  :title="isInDraft(item.table_name) ? '移出已选' : '加入已选'"
+                  @click.stop="toggleDraft(item.table_name)"
+                >
+                  <CheckIcon v-if="isInDraft(item.table_name)" class="w-3.5 h-3.5" />
+                  <PlusIcon v-else class="w-3.5 h-3.5" />
+                </button>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
+                      <span class="text-sm font-mono font-bold text-gray-800 break-all">{{ item.table_name }}</span>
+                      <span class="text-[9px] px-1 py-0.5 rounded font-black shrink-0" :class="item.table_type === 'VIEW' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'">{{ item.table_type || 'TABLE' }}</span>
+                      <span v-if="item.confidence_score != null" class="text-[9px] px-1 py-0.5 rounded font-bold bg-green-100 text-green-700 shrink-0">{{ item.confidence_score }}%</span>
+                      <StarSolidIcon v-if="item.is_favorite" class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    </div>
+                    <button
+                      type="button"
+                      class="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold border transition-colors"
+                      :class="expandedDataTable === item.table_name
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-500 border-gray-200 opacity-0 group-hover:opacity-100 hover:border-indigo-300 hover:text-indigo-600'"
+                      :title="expandedDataTable === item.table_name ? '收起数据预览' : '预览前 10 条数据'"
+                      @click.stop="toggleDataPreview(item.table_name)"
+                    >
+                      <EyeIcon class="w-3.5 h-3.5" />
+                      预览数据
+                    </button>
+                  </div>
+                  <div v-if="item.ai_term" class="text-xs text-indigo-600 font-semibold mt-0.5 break-words">{{ item.ai_term }}</div>
+                  <div v-if="item.ai_description" class="text-[11px] text-gray-500 mt-0.5 break-words leading-relaxed">{{ item.ai_description }}</div>
+                  <div v-if="item.favorite_note" class="text-[11px] text-blue-600 mt-0.5 break-words">📝 {{ item.favorite_note }}</div>
                 </div>
-                <div v-if="item.ai_term" class="text-xs text-indigo-600 font-semibold mt-0.5 truncate">{{ item.ai_term }}</div>
-                <div v-if="item.ai_description" class="text-[11px] text-gray-500 mt-0.5 line-clamp-2 leading-snug">{{ item.ai_description }}</div>
-                <div v-if="item.favorite_note" class="text-[11px] text-blue-600 mt-0.5 line-clamp-1">📝 {{ item.favorite_note }}</div>
+              </div>
+
+              <div
+                v-if="expandedDataTable === item.table_name"
+                class="px-4 pb-3 ml-9 mr-4"
+                @click.stop
+              >
+                <div v-if="dataPreviewLoading" class="py-4 text-center text-gray-400 text-xs">
+                  <div class="inline-block w-4 h-4 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mr-2 align-middle" />
+                  正在加载前 10 条数据...
+                </div>
+                <div v-else-if="dataPreviewError" class="py-2 px-3 bg-red-50 border border-red-100 rounded-lg text-red-600 text-[11px]">
+                  {{ dataPreviewError }}
+                </div>
+                <div v-else-if="dataPreviewData" class="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                  <div class="px-3 py-1.5 border-b bg-gray-50 flex items-center justify-between">
+                    <span class="text-[10px] font-bold text-gray-400">数据预览 (最多 10 行)</span>
+                    <span class="text-[10px] text-gray-400">{{ dataPreviewData.rows?.length || 0 }} 行</span>
+                  </div>
+                  <div class="overflow-x-auto custom-scrollbar max-h-48">
+                    <table class="min-w-full divide-y divide-gray-100">
+                      <thead class="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th
+                            v-for="col in dataPreviewData.columns"
+                            :key="colName(col)"
+                            class="px-2 py-1.5 text-left text-[9px] font-bold text-gray-400 uppercase whitespace-nowrap"
+                          >{{ colName(col) }}</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-50">
+                        <tr v-for="(row, rIdx) in dataPreviewData.rows" :key="rIdx" class="hover:bg-gray-50/80">
+                          <td
+                            v-for="(cell, cIdx) in row"
+                            :key="cIdx"
+                            class="px-2 py-1 text-[10px] text-gray-600 whitespace-nowrap max-w-[160px] truncate"
+                            :title="cell === null || cell === undefined ? 'NULL' : String(cell)"
+                          >{{ cell === null || cell === undefined ? 'NULL' : cell }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div v-if="!dataPreviewData.rows?.length" class="py-6 text-center text-gray-400 text-[11px] italic">表中暂无数据</div>
+                </div>
               </div>
             </div>
           </div>
