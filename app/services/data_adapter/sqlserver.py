@@ -264,7 +264,7 @@ class SqlServerAdapter(DataSourceAdapter):
                 items = [list(row) for row in rows]
                 return {"columns": columns, "items": items}
 
-    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None, offset: int = 0, include_total: bool = False) -> Dict[str, Any]:
         import time
 
         params = params or {}
@@ -288,6 +288,11 @@ class SqlServerAdapter(DataSourceAdapter):
         upper = clean_sql.upper()
         if "TOP " in upper or "FETCH NEXT" in upper or "OFFSET " in upper:
             final_sql = clean_sql
+        elif offset > 0:
+            final_sql = (
+                f"SELECT * FROM ({clean_sql}) AS _preview_sub "
+                f"ORDER BY (SELECT NULL) OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+            )
         else:
             final_sql = f"SELECT TOP {limit} * FROM ({clean_sql}) AS _preview_sub"
 
@@ -295,17 +300,62 @@ class SqlServerAdapter(DataSourceAdapter):
         from app.services.pool_manager import DataSourcePoolManager
 
         pool = await DataSourcePoolManager.get_pool(self.source_id)
+        total_count = None
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
+                if include_total and "TOP " not in upper and "OFFSET " not in upper:
+                    await cursor.execute(f"SELECT COUNT(*) FROM ({clean_sql}) AS _cnt")
+                    count_row = await cursor.fetchone()
+                    total_count = int(count_row[0]) if count_row else 0
+
                 await cursor.execute(final_sql)
                 rows = await cursor.fetchall()
                 columns = [{"name": desc[0], "type": str(desc[1])} for desc in cursor.description] if cursor.description else []
                 items = [list(row) for row in rows]
 
         execution_time = (time.perf_counter() - start_time) * 1000
-        return {
+        result = {
             "columns": columns,
             "rows": items,
             "execution_time_ms": execution_time,
             "scanned_rows": 0,
+            "offset": offset,
+            "limit": limit,
+        }
+        if total_count is not None:
+            result["total_count"] = total_count
+        return result
+
+    async def explain(self, sql: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        import time
+        params = params or {}
+        try:
+            self._validate_sql_safety(sql)
+        except SQLSafetyError as exc:
+            raise ValueError(str(exc)) from exc
+
+        rendered_sql = sql
+        if "{{" in sql or "{%" in sql:
+            template = SQL_LAB_ENV.from_string(sql)
+            rendered_sql = template.render(**params)
+            self._validate_sql_safety(rendered_sql)
+
+        clean_sql = rendered_sql.strip().rstrip(";")
+        explain_sql = f"SET SHOWPLAN_ALL ON; {clean_sql}; SET SHOWPLAN_ALL OFF"
+
+        start_time = time.perf_counter()
+        from app.services.pool_manager import DataSourcePoolManager
+        pool = await DataSourcePoolManager.get_pool(self.source_id)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(f"SET SHOWPLAN_ALL ON")
+                await cursor.execute(clean_sql)
+                rows = await cursor.fetchall()
+                columns = [{"name": desc[0], "type": str(desc[1])} for desc in cursor.description] if cursor.description else []
+                await cursor.execute("SET SHOWPLAN_ALL OFF")
+
+        return {
+            "columns": columns,
+            "rows": [list(r) for r in rows],
+            "execution_time_ms": (time.perf_counter() - start_time) * 1000,
         }

@@ -24,6 +24,7 @@ const props = defineProps<{
   hasProfiled?: boolean
   tableProfilesMap?: Record<string, any>
   sourceId?: number | null
+  joinPaths?: any[]
 }>()
 
 const emit = defineEmits<{
@@ -38,6 +39,7 @@ const emit = defineEmits<{
   (e: 'column-dblclick', column: string): void
   (e: 'table-ai', table: string): void
   (e: 'clear-logs'): void
+  (e: 'insert-join', snippet: string): void
 }>()
 
 const activeTab = ref<'tables' | 'debug'>('tables')
@@ -334,6 +336,21 @@ const handleDragStart = (event: DragEvent, name: string) => {
               <svg class="w-3.5 h-3.5" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             </button>
           </div>
+        </div>
+
+        <div v-if="joinPaths?.length" class="px-3 py-2 border-b bg-indigo-50/40 space-y-1.5">
+          <div class="text-[9px] font-black text-indigo-700 uppercase tracking-widest">JOIN 路径推荐</div>
+          <button
+            v-for="(p, pi) in joinPaths.slice(0, 5)"
+            :key="pi"
+            type="button"
+            class="w-full text-left p-2 rounded-lg border border-indigo-100 bg-white hover:border-indigo-300 text-[10px]"
+            @click="emit('insert-join', p.snippet)"
+          >
+            <div class="font-bold text-gray-800">{{ p.source_table }} → {{ p.target_table }}</div>
+            <div class="text-gray-500 font-mono truncate">{{ p.condition }}</div>
+            <div class="text-indigo-500 mt-0.5">置信度 {{ Math.round(p.confidence * 100) }}% · 点击插入</div>
+          </button>
         </div>
         
         <div class="p-2 border-b space-y-2">

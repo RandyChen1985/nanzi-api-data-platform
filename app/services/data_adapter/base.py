@@ -32,6 +32,21 @@ class DataSourceAdapter(ABC):
         """Execute raw SQL query with parameters"""
         pass
 
+    async def preview(
+        self,
+        sql: str,
+        limit: int = 100,
+        params: Optional[Dict[str, Any]] = None,
+        offset: int = 0,
+        include_total: bool = False,
+    ) -> Dict[str, Any]:
+        """Preview SQL with pagination — override in dialect adapters"""
+        raise NotImplementedError(f"preview() not implemented for {type(self).__name__}")
+
+    async def explain(self, sql: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """EXPLAIN execution plan — override in dialect adapters"""
+        raise NotImplementedError(f"explain() not implemented for {type(self).__name__}")
+
     def _validate_sql_safety(self, sql: str) -> None:
         """
         Perform advanced security audit on raw SQL using AST parsing (sqlparse).

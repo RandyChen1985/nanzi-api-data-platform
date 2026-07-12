@@ -40,6 +40,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "save-session", payload: { title: string; messages: Message[] }): void;
 }>();
 
 const md = new MarkdownIt({
@@ -260,12 +261,19 @@ onMounted(() => {
         <SparklesIcon class="w-5 h-5 text-indigo-600" />
         <h3 class="font-bold text-gray-900">AI 数据专家分析</h3>
       </div>
-      <button
-        @click="emit('close')"
-        class="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-all"
-      >
-        <XMarkIcon class="w-6 h-6" />
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="messages.length > 0"
+          @click="emit('save-session', { title: `分析 ${new Date().toLocaleString()}`, messages })"
+          class="px-3 py-1 text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50"
+        >保存会话</button>
+        <button
+          @click="emit('close')"
+          class="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-all"
+        >
+          <XMarkIcon class="w-6 h-6" />
+        </button>
+      </div>
     </div>
 
     <!-- Chat Area -->

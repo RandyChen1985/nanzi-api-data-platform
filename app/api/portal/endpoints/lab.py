@@ -8,7 +8,11 @@ from app.services.data_adapter.clickhouse import ClickHouseAdapter
 from app.services.meta_service import MetaService
 from typing import List, Optional
 
-from app.schemas.lab import PreviewRequest, PublishRequest, AIRequest, AIGenerateRequest, AIProfileGenerateRequest
+from app.schemas.lab import (
+    PreviewRequest, PublishRequest, AIRequest, AIGenerateRequest, AIProfileGenerateRequest,
+    ExplainRequest, RiskCheckRequest, ExportRequest, SavedQueryCreate, SavedQueryUpdate,
+    AiFeedbackRequest, AnalysisSessionSave, PublishCheckRequest, AIEditRequest,
+)
 
 from app.services.ai_service import AIService
 from app.services.db_profile_service import DbProfileService
@@ -16,6 +20,7 @@ from app.schemas.resource import ResourceCreate, FieldConfig
 from pydantic import BaseModel
 import logging
 import sqlparse
+import os
 from app.services.permission_service import PermissionService
 
 router = APIRouter()
@@ -120,6 +125,8 @@ DATABASE SCHEMA CONTEXT:
 """
 
 from app.utils.sql_parser import extract_table_names
+from app.utils.sql_risk import check_sql_risks
+from app.services.lab_enhancement_service import LabEnhancementService, EXPORT_DIR
 
 from fastapi import APIRouter, Depends, HTTPException, Body, Request, BackgroundTasks # 确保 Request 和 BackgroundTasks 被导入
 from fastapi.responses import StreamingResponse
@@ -179,8 +186,15 @@ async def preview_sql(
 
     status = "SUCCESS"
     error_msg = None
+
+    # Risk warnings (non-blocking)
+    risk_warnings = [] if request.skip_risk_check else check_sql_risks(request.sql)
+
     try:
-        result = await adapter.preview(request.sql, request.limit, request.params)
+        result = await adapter.preview(
+            request.sql, request.limit, request.params,
+            offset=request.offset, include_total=request.include_total,
+        )
         
         # --- Apply Data Masking ---
         from app.services.masking_service import MaskingService
@@ -212,6 +226,7 @@ async def preview_sql(
         background_tasks.add_task(
             _insert_audit_log, int(user["user_id"]), request.source_id, request.sql, duration, status, None, 'LAB_QUERY'
         )
+        result["risk_warnings"] = risk_warnings
         return result
     except ValueError as e:
         status = "FAILED"
@@ -511,13 +526,6 @@ async def generate_metadata(request: MetadataRequest, user=Depends(require_permi
         logger.error(f"Metadata generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-class AIEditRequest(BaseModel):
-    sql: str
-    instruction: str
-    source_id: int
-    mode: str = "api"
-    tables: Optional[List[str]] = None
-
 class AIFixErrorRequest(BaseModel): # 新增纠错请求
     sql: str
     error: str
@@ -727,3 +735,220 @@ async def publish_api(
     except Exception as e:
         logger.error(f"Validation failed during publication: {e}")
         raise HTTPException(status_code=400, detail=f"Parameter Validation Error: {str(e)}")
+
+
+# ---------- Lab Enhancements ----------
+
+@router.post("/check-risks")
+async def check_risks(request: RiskCheckRequest, user=Depends(require_permission("element:lab:generate"))):
+    return {"warnings": check_sql_risks(request.sql)}
+
+
+@router.post("/explain")
+async def explain_sql(request: ExplainRequest, user=Depends(require_permission("element:lab:generate"))):
+    ds_config = await DataSourceService.get_datasource(request.source_id)
+    if not ds_config:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    adapter = await get_adapter(ds_config.source_name)
+    try:
+        return await adapter.explain(request.sql, request.params)
+    except NotImplementedError:
+        raise HTTPException(status_code=400, detail="当前数据源暂不支持 EXPLAIN")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"EXPLAIN failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/export")
+async def create_export_job(
+    request_in: Request,
+    request: ExportRequest,
+    background_tasks: BackgroundTasks,
+    user=Depends(require_permission("element:lab:export")),
+):
+    request_in.state.action_type = 'LAB_EXPORT'
+    request_in.state.source_sql = request.sql
+    job_id = await LabEnhancementService.create_export_job(int(user["user_id"]), request.dict())
+    background_tasks.add_task(LabEnhancementService.run_export_job, job_id, user)
+    return {"job_id": job_id, "status": "pending"}
+
+
+@router.get("/export/{job_id}")
+async def get_export_job(job_id: int, user=Depends(require_permission("element:lab:export"))):
+    job = await LabEnhancementService.get_export_job(int(user["user_id"]), job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="导出任务不存在")
+    return job
+
+
+@router.get("/export/{job_id}/download")
+async def download_export(job_id: int, user=Depends(require_permission("element:lab:export"))):
+    from fastapi.responses import FileResponse
+    job = await LabEnhancementService.get_export_job(int(user["user_id"]), job_id)
+    if not job or job.get("status") != 2 or not job.get("file_path"):
+        raise HTTPException(status_code=404, detail="文件尚未就绪")
+    if not os.path.exists(job["file_path"]):
+        raise HTTPException(status_code=404, detail="导出文件已过期")
+    filename = os.path.basename(job["file_path"])
+    return FileResponse(job["file_path"], filename=filename, media_type="application/octet-stream")
+
+
+@router.get("/saved-queries")
+async def list_saved_queries(
+    source_id: Optional[int] = None,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    return await LabEnhancementService.list_saved_queries(int(user["user_id"]), source_id)
+
+
+@router.post("/saved-queries")
+async def create_saved_query(
+    request: SavedQueryCreate,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    qid = await LabEnhancementService.create_saved_query(int(user["user_id"]), request.dict())
+    return {"id": qid}
+
+
+@router.put("/saved-queries/{query_id}")
+async def update_saved_query(
+    query_id: int,
+    request: SavedQueryUpdate,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    ok = await LabEnhancementService.update_saved_query(int(user["user_id"]), query_id, request.dict())
+    if not ok:
+        raise HTTPException(status_code=404, detail="查询不存在或无权限")
+    return {"success": True}
+
+
+@router.delete("/saved-queries/{query_id}")
+async def delete_saved_query(
+    query_id: int,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    ok = await LabEnhancementService.delete_saved_query(int(user["user_id"]), query_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="查询不存在或无权限")
+    return {"success": True}
+
+
+@router.post("/ai/edit")
+async def ai_edit_sql(request: AIEditRequest, user=Depends(require_permission("element:lab:generate"))):
+    ctx_res = await MetaService.get_schema_context(request.source_id, request.tables)
+    schema_context = ctx_res["context"] if isinstance(ctx_res, dict) else ctx_res
+    ds_config = await DataSourceService.get_datasource(request.source_id)
+    source_type = ds_config.source_type if ds_config else "mysql"
+
+    system_prompt = (
+        PROMPT_STRATEGY_API if request.mode == "api" else PROMPT_STRATEGY_ANALYST
+    ).format(source_type=source_type, schema_context=schema_context)
+
+    messages = [
+        {"role": "system", "content": system_prompt + "\n\n你只修改用户指定的 SQL 片段，返回完整修改后的 SQL。"},
+        {"role": "user", "content": f"原始 SQL:\n{request.sql}\n\n修改指令: {request.instruction}"},
+    ]
+    try:
+        content = await AIService.chat_completion(messages)
+        import re
+        sql = re.sub(r"```sql|```", "", content).strip()
+        if ";" in sql:
+            sql = sql.split(";")[0].strip()
+        return {"sql": sql, "original_sql": request.sql}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai/feedback")
+async def save_ai_feedback(
+    request: AiFeedbackRequest,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    fid = await LabEnhancementService.save_ai_feedback(int(user["user_id"]), request.dict())
+    return {"id": fid}
+
+
+@router.get("/join-paths")
+async def get_join_paths(
+    source_id: int,
+    tables: str,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    table_list = [t.strip() for t in tables.split(",") if t.strip()]
+    paths = await LabEnhancementService.get_join_paths(source_id, table_list)
+    return paths
+
+
+@router.get("/analysis-sessions")
+async def list_analysis_sessions(user=Depends(require_permission("element:lab:analysis"))):
+    return await LabEnhancementService.list_analysis_sessions(int(user["user_id"]))
+
+
+@router.post("/analysis-sessions")
+async def save_analysis_session(
+    request: AnalysisSessionSave,
+    user=Depends(require_permission("element:lab:analysis")),
+):
+    sid = await LabEnhancementService.save_analysis_session(int(user["user_id"]), request.dict())
+    return {"id": sid}
+
+
+@router.get("/analysis-sessions/{session_id}")
+async def get_analysis_session(
+    session_id: int,
+    user=Depends(require_permission("element:lab:analysis")),
+):
+    session = await LabEnhancementService.get_analysis_session(int(user["user_id"]), session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return session
+
+
+@router.delete("/analysis-sessions/{session_id}")
+async def delete_analysis_session(
+    session_id: int,
+    user=Depends(require_permission("element:lab:analysis")),
+):
+    ok = await LabEnhancementService.delete_analysis_session(int(user["user_id"]), session_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"success": True}
+
+
+@router.post("/publish-check")
+async def publish_check(
+    request: PublishCheckRequest,
+    user=Depends(require_permission("element:lab:publish")),
+):
+    """发布前体检：风险检查 + 空参测试 + 参数 schema 推断"""
+    checks = []
+    warnings = check_sql_risks(request.sql)
+    checks.append({
+        "name": "risk_check",
+        "passed": not any(w["level"] == "danger" for w in warnings),
+        "warnings": warnings,
+    })
+    checks.append({
+        "name": "param_schema",
+        "passed": True,
+        "params": LabEnhancementService.infer_param_schema(request.sql),
+    })
+
+    ds_config = await DataSourceService.get_datasource(request.source_id)
+    if not ds_config:
+        raise HTTPException(status_code=404, detail="Data source not found")
+    adapter = await get_adapter(ds_config.source_name)
+
+    empty_params = {k: None for k in (request.params or {})}
+    try:
+        await adapter.preview(request.sql, 1, empty_params)
+        checks.append({"name": "empty_param_test", "passed": True, "message": "空参测试通过"})
+    except Exception as e:
+        checks.append({"name": "empty_param_test", "passed": False, "message": str(e)})
+
+    all_passed = all(c.get("passed", False) for c in checks if c["name"] != "risk_check") and \
+        not any(w["level"] == "danger" for w in warnings)
+
+    return {"passed": all_passed, "checks": checks}

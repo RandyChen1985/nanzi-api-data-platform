@@ -43,6 +43,7 @@
 | `/api/portal/monitor`     | (Manual/UI Test)         | 系统资源监控 (CPU/内存/磁盘/Redis)       | ✅ 通过 | 2026-01-28   |
 | `/api/portal/user/keys`   | `test_user_api_key.py`   | 个人 API Key 管理、创建、删除、权限绑定  | ✅ 通过 | 2026-01-28   |
 | `/api/portal/lab/preview` | `test_lab_security.py`   | SQL Lab 安全拦截、关键字过滤、注释防绕过、**支持 Oracle 数据源预览** | ✅ 通过 | 2026-03-06   |
+| `/api/portal/lab/*` (增强) | `test_sql_risk.py` | **风险检测、EXPLAIN、异步导出、保存查询、JOIN 推荐、发布体检** | ⏳ 待验 | 2026-07-12   |
 | `/api/portal/lab/ai/*`    | `test_permission_system.py` | SQL 生成/校验/修改 (已验证角色权限继承) | ✅ 通过 | 2026-01-28   |
 | `/api/portal/management/roles/{id}/users` | `test_management_enhanced.py` | **角色成员批量分配、全量覆盖逻辑、缓存失效验证** | ✅ 通过 | 2026-03-13   |
 | `/api/portal/meta/*`      | `test_permission_system.py` | 数据源表结构元数据获取 (已验证角色权限) | ✅ 通过 | 2026-01-28   |

@@ -265,7 +265,7 @@ class OracleAdapter(DataSourceAdapter):
             rows, _ = await self._run_query_internal(sql, {"t": table_name.upper() if table_name else ""})
             return [{"name": row[0], "type": row[1], "comment": row[2] or ""} for row in rows]
 
-    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None, offset: int = 0, include_total: bool = False) -> Dict[str, Any]:
         import time
         params = params or {}
         self._validate_sql_safety(sql)
@@ -286,34 +286,81 @@ class OracleAdapter(DataSourceAdapter):
         if "ROWNUM" in sql_upper or "FETCH FIRST" in sql_upper:
             final_sql = clean_sql
         else:
-            # Handle CTE (WITH ... SELECT)
+            end_row = offset + limit
             if sql_upper.startswith("WITH"):
-                # Pattern: WITH ... SELECT ... -> WITH ... SELECT * FROM (SELECT ...) WHERE ROWNUM <= limit
-                # Find the last SELECT (very basic heuristic)
                 select_match = list(re.finditer(r"\bSELECT\b", sql_upper))
                 if select_match:
                     last_select_pos = select_match[-1].start()
                     with_part = clean_sql[:last_select_pos]
                     select_part = clean_sql[last_select_pos:]
-                    final_sql = f"{with_part} SELECT * FROM ({select_part}) WHERE ROWNUM <= {limit}"
+                    inner = f"SELECT * FROM ({select_part}) WHERE ROWNUM <= {end_row}"
+                    if offset > 0:
+                        final_sql = (
+                            f"{with_part} SELECT * FROM ({inner}) WHERE rn > {offset}"
+                        )
+                    else:
+                        final_sql = f"{with_part} {inner}"
+                else:
+                    final_sql = f"SELECT * FROM ({clean_sql}) WHERE ROWNUM <= {end_row}"
+            else:
+                if offset > 0:
+                    final_sql = (
+                        f"SELECT * FROM (SELECT a.*, ROWNUM rn FROM ({clean_sql}) a "
+                        f"WHERE ROWNUM <= {end_row}) WHERE rn > {offset}"
+                    )
                 else:
                     final_sql = f"SELECT * FROM ({clean_sql}) WHERE ROWNUM <= {limit}"
-            else:
-                final_sql = f"SELECT * FROM ({clean_sql}) WHERE ROWNUM <= {limit}"
         
         start_time = time.perf_counter()
         
-        # 3. Parameter Handling (Oracle 11g compatibility fix)
-        # Only pass params to cursor.execute if the rendered SQL actually contains ':' placeholders.
-        # Otherwise, passing full params dict to oracledb often leads to ORA-01036.
         execute_params = params if ":" in final_sql else {}
         
+        total_count = None
+        if include_total and "ROWNUM" not in sql_upper:
+            count_sql = f"SELECT COUNT(*) AS cnt FROM ({clean_sql})"
+            count_rows, _ = await self._run_query_internal(count_sql, execute_params)
+            total_count = int(count_rows[0][0]) if count_rows else 0
+
         rows, description = await self._run_query_internal(final_sql, execute_params)
         columns = [{"name": desc[0], "type": str(desc[1])} for desc in description] if description else []
         
-        return {
+        result = {
             "columns": columns,
             "rows": [list(row) for row in rows],
             "execution_time_ms": (time.perf_counter() - start_time) * 1000,
-            "scanned_rows": 0
+            "scanned_rows": 0,
+            "offset": offset,
+            "limit": limit,
+        }
+        if total_count is not None:
+            result["total_count"] = total_count
+        return result
+
+    async def explain(self, sql: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        import time
+        params = params or {}
+        self._validate_sql_safety(sql)
+
+        rendered_sql = sql
+        if "{{" in sql or "{%" in sql:
+            rendered_sql = SQL_LAB_ENV.from_string(sql).render(**params)
+            self._validate_sql_safety(rendered_sql)
+
+        clean_sql = rendered_sql.strip().rstrip(";")
+        explain_sql = clean_sql if clean_sql.upper().startswith("EXPLAIN") else f"EXPLAIN PLAN FOR {clean_sql}"
+
+        start_time = time.perf_counter()
+        execute_params = params if ":" in explain_sql else {}
+        await self._run_query_internal(explain_sql, execute_params)
+
+        plan_sql = """
+            SELECT PLAN_TABLE_OUTPUT AS plan_line
+            FROM TABLE(DBMS_XPLAN.DISPLAY(NULL, NULL, 'BASIC'))
+        """
+        rows, description = await self._run_query_internal(plan_sql, {})
+        columns = [{"name": desc[0], "type": str(desc[1])} for desc in description] if description else []
+        return {
+            "columns": columns,
+            "rows": [list(r) for r in rows],
+            "execution_time_ms": (time.perf_counter() - start_time) * 1000,
         }

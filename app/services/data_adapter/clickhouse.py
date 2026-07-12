@@ -436,7 +436,7 @@ class ClickHouseAdapter(DataSourceAdapter):
         wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
         retry=retry_if_exception_type((InterfaceError, OSError))
     )
-    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None, offset: int = 0, include_total: bool = False) -> Dict[str, Any]:
         """
         Safely execute a preview query for SQL Lab.
         Enforces read-only mode and row limits.
@@ -475,27 +475,35 @@ class ClickHouseAdapter(DataSourceAdapter):
         if "LIMIT" in clean_sql.upper():
             final_sql = clean_sql
         else:
-            final_sql = f"SELECT * FROM ({clean_sql}) LIMIT {limit}"
+            final_sql = f"SELECT * FROM ({clean_sql}) LIMIT {limit} OFFSET {offset}"
         
         start_time = time.perf_counter()
         
         from app.services.pool_manager import DataSourcePoolManager
         pool = await DataSourcePoolManager.get_pool(self.source_id)
+
+        total_count = None
         
         # 4. Execution with Restricted Settings
         query_settings = {
-            "max_execution_time": 10,           # Max 10s for preview
-            "max_rows_to_read": 0,              # Disable scan row limit for preview as we have outer LIMIT
-            "readonly": 1                       # ClickHouse readonly mode
+            "max_execution_time": 10,
+            "max_rows_to_read": 0,
+            "readonly": 1
         }
         
         settings_clause = " SETTINGS " + ", ".join([f"{k}={v}" for k, v in query_settings.items()])
-        final_sql += settings_clause
         
         async with pool.connection() as conn:
             async with conn.cursor() as cursor:
-                logger.info(f"Executing Preview SQL: {final_sql} with params {params}")
-                await cursor.execute(final_sql)
+                if include_total and "LIMIT" not in clean_sql.upper():
+                    count_sql = f"SELECT count() AS _cnt FROM ({clean_sql})" + settings_clause
+                    await cursor.execute(count_sql)
+                    count_row = await cursor.fetchone()
+                    total_count = int(count_row[0]) if count_row else 0
+
+                final_sql_exec = final_sql + settings_clause
+                logger.info(f"Executing Preview SQL: {final_sql_exec} with params {params}")
+                await cursor.execute(final_sql_exec)
                 rows = await cursor.fetchall()
                 
                 columns = []
@@ -503,15 +511,53 @@ class ClickHouseAdapter(DataSourceAdapter):
                     for desc in cursor.description:
                          columns.append({"name": desc[0], "type": desc[1]})
                 
-                # Rows to list
                 items = [list(row) for row in rows]
                 
         execution_time = (time.perf_counter() - start_time) * 1000
         
-        return {
+        result = {
             "columns": columns,
             "rows": items,
             "execution_time_ms": execution_time,
-            "scanned_rows": 0
+            "scanned_rows": 0,
+            "offset": offset,
+            "limit": limit,
+        }
+        if total_count is not None:
+            result["total_count"] = total_count
+        return result
+
+    async def explain(self, sql: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        import time
+        from .base import SQLSafetyError
+
+        params = params or {}
+        try:
+            self._validate_sql_safety(sql)
+        except SQLSafetyError as e:
+            raise ValueError(str(e))
+
+        rendered_sql = sql
+        if "{{" in sql or "{%" in sql:
+            template = _SQL_LAB_ENV.from_string(sql)
+            rendered_sql = template.render(**params)
+            self._validate_sql_safety(rendered_sql)
+
+        clean_sql = rendered_sql.strip().rstrip(";")
+        explain_sql = clean_sql if clean_sql.upper().startswith("EXPLAIN") else f"EXPLAIN {clean_sql}"
+
+        start_time = time.perf_counter()
+        from app.services.pool_manager import DataSourcePoolManager
+        pool = await DataSourcePoolManager.get_pool(self.source_id)
+        async with pool.connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(explain_sql + " SETTINGS readonly=1")
+                rows = await cursor.fetchall()
+                columns = [{"name": desc[0], "type": desc[1]} for desc in cursor.description] if cursor.description else []
+
+        return {
+            "columns": columns,
+            "rows": [list(r) for r in rows],
+            "execution_time_ms": (time.perf_counter() - start_time) * 1000,
         }
 

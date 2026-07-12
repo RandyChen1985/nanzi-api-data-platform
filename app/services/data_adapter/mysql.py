@@ -333,7 +333,7 @@ class MySQLAdapter(DataSourceAdapter):
                     "items": items
                 }
 
-    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def preview(self, sql: str, limit: int = 100, params: Dict[str, Any] = None, offset: int = 0, include_total: bool = False) -> Dict[str, Any]:
         """
         Safely execute a preview query for SQL Lab.
         Enforces row limits and read-only heuristic.
@@ -371,15 +371,22 @@ class MySQLAdapter(DataSourceAdapter):
         if "LIMIT" in clean_sql.upper():
             final_sql = clean_sql
         else:
-            final_sql = f"SELECT * FROM ({clean_sql}) AS _preview_sub LIMIT {limit}"
+            final_sql = f"SELECT * FROM ({clean_sql}) AS _preview_sub LIMIT {limit} OFFSET {offset}"
         
         start_time = time.perf_counter()
         
         from app.services.pool_manager import DataSourcePoolManager
         pool = await DataSourcePoolManager.get_pool(self.source_id)
         
+        total_count = None
         async with pool.acquire() as conn:
             async with conn.cursor() as cursor:
+                if include_total and "LIMIT" not in clean_sql.upper():
+                    count_sql = f"SELECT COUNT(*) AS _cnt FROM ({clean_sql}) AS _preview_cnt"
+                    await cursor.execute(count_sql)
+                    count_row = await cursor.fetchone()
+                    total_count = int(count_row[0]) if count_row else 0
+
                 logger.info(f"Executing MySQL Preview SQL: {final_sql} with params {params}")
                 
                 await cursor.execute(final_sql)
@@ -394,10 +401,52 @@ class MySQLAdapter(DataSourceAdapter):
                 
         execution_time = (time.perf_counter() - start_time) * 1000
         
-        return {
+        result = {
             "columns": columns,
             "rows": items,
             "execution_time_ms": execution_time,
-            "scanned_rows": 0
+            "scanned_rows": 0,
+            "offset": offset,
+            "limit": limit,
+        }
+        if total_count is not None:
+            result["total_count"] = total_count
+        return result
+
+    async def explain(self, sql: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        import time
+        from .base import SQLSafetyError
+
+        params = params or {}
+        try:
+            self._validate_sql_safety(sql)
+        except SQLSafetyError as e:
+            raise ValueError(str(e))
+
+        rendered_sql = sql
+        if "{{" in sql or "{%" in sql:
+            template = SQL_LAB_ENV.from_string(sql)
+            rendered_sql = template.render(**params)
+            self._validate_sql_safety(rendered_sql)
+
+        clean_sql = rendered_sql.strip().rstrip(";")
+        if clean_sql.upper().startswith("EXPLAIN"):
+            explain_sql = clean_sql
+        else:
+            explain_sql = f"EXPLAIN {clean_sql}"
+
+        start_time = time.perf_counter()
+        from app.services.pool_manager import DataSourcePoolManager
+        pool = await DataSourcePoolManager.get_pool(self.source_id)
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(explain_sql)
+                rows = await cursor.fetchall()
+                columns = [{"name": desc[0], "type": str(desc[1])} for desc in cursor.description] if cursor.description else []
+
+        return {
+            "columns": columns,
+            "rows": [list(r) for r in rows],
+            "execution_time_ms": (time.perf_counter() - start_time) * 1000,
         }
 

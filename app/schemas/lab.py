@@ -7,7 +7,56 @@ class PreviewRequest(BaseModel):
     sql: str
     params: Optional[Dict[str, Any]] = None
     limit: int = 100
+    offset: int = 0
+    include_total: bool = False
     unmask: bool = False
+    skip_risk_check: bool = False
+
+class ExplainRequest(BaseModel):
+    source_id: int
+    sql: str
+    params: Optional[Dict[str, Any]] = None
+
+class RiskCheckRequest(BaseModel):
+    sql: str
+    source_id: Optional[int] = None
+
+class ExportRequest(BaseModel):
+    source_id: int
+    sql: str
+    params: Optional[Dict[str, Any]] = None
+    format: str = "csv"  # csv | xlsx (xlsx stored as csv if openpyxl unavailable)
+
+class SavedQueryCreate(BaseModel):
+    name: str
+    sql: str
+    source_id: int
+    lab_mode: str = "analyst"
+    test_params: Optional[Dict[str, Any]] = None
+    tags: Optional[List[str]] = None
+    is_shared: bool = False
+
+class SavedQueryUpdate(SavedQueryCreate):
+    pass
+
+class AiFeedbackRequest(BaseModel):
+    source_id: Optional[int] = None
+    prompt: Optional[str] = None
+    generated_sql: Optional[str] = None
+    rating: int = Field(..., ge=1, le=2, description="1=踩 2=赞")
+    execution_success: bool = False
+
+class AnalysisSessionSave(BaseModel):
+    title: str
+    sql: Optional[str] = None
+    columns: Optional[List[Any]] = None
+    messages: List[Any]
+
+class PublishCheckRequest(BaseModel):
+    source_id: int
+    sql: str
+    params: Optional[Dict[str, Any]] = None
+    resource_mode: str = "api"
 
 class PublishRequest(BaseModel):
     resource_key: str
@@ -52,7 +101,6 @@ class AIEditRequest(BaseModel):
     source_id: int
     tables: Optional[List[str]] = None
     mode: Optional[str] = "api"
-
 
 
 

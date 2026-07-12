@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { 
   PlayIcon, ClockIcon, CommandLineIcon, SparklesIcon, CircleStackIcon, TrashIcon, XMarkIcon,
   ListBulletIcon, PencilSquareIcon, CalendarDaysIcon, QuestionMarkCircleIcon,
-  BeakerIcon, TableCellsIcon
+  BeakerIcon, TableCellsIcon, StopIcon, EyeIcon, BoltIcon, BookmarkIcon
 } from '@heroicons/vue/24/outline'
 import { Codemirror } from 'vue-codemirror'
 import { sql as sqlLang, MySQL, PostgreSQL, MariaSQL } from '@codemirror/lang-sql'
@@ -17,7 +17,7 @@ import Tooltip from '../common/Tooltip.vue'
 
 // Types
 interface DataSource { id: number; source_name: string; source_type: string }
-interface QueryTab { id: string; name: string; sql: string; testParams: Record<string, any>; result: any; error: any; executing: boolean; activeSubTab: 'result' | 'ai', emptyTestPassed: boolean }
+interface QueryTab { id: string; name: string; sql: string; testParams: Record<string, any>; result: any; error: any; executing: boolean; activeSubTab: 'result' | 'ai' | 'explain', emptyTestPassed: boolean }
 interface HistoryItem { sql: string; params: any; timestamp: number }
 
 const props = defineProps<{
@@ -36,11 +36,16 @@ const props = defineProps<{
   noAccess?: boolean
   labMode: 'api' | 'analyst'
   recalledContext: any[]
+  previewLimit: number
+  unmask?: boolean
+  isAdmin?: boolean
+  sensitiveWarnings?: { level: string; message: string }[]
 }>()
 
 const emit = defineEmits<{
   (e: 'update:activeTabIndex', idx: number): void
   (e: 'update:selectedSourceId', id: number): void
+  (e: 'update:previewLimit', value: number): void
   (e: 'create-tab'): void
   (e: 'close-tab', idx: number): void
   (e: 'close-all-tabs'): void
@@ -54,6 +59,11 @@ const emit = defineEmits<{
   (e: 'toggle-sidebar'): void
   (e: 'run-empty-test'): void
   (e: 'format-sql'): void
+  (e: 'cancel-query'): void
+  (e: 'run-explain'): void
+  (e: 'update:unmask', value: boolean): void
+  (e: 'open-saved-queries'): void
+  (e: 'ai-edit-sql', instruction: string): void
 }>()
 
 const { showToast } = useToast()
@@ -117,6 +127,7 @@ const currentDialect = computed(() => {
   const type = source.source_type.toLowerCase()
   if (type === 'postgresql') return PostgreSQL
   if (type === 'clickhouse') return MariaSQL
+  if (type === 'oracle' || type === 'sqlserver') return MariaSQL
   return MySQL
 })
 
@@ -148,6 +159,8 @@ const extensions = computed(() => [
   ])
 ])
 
+const showAiEditModal = ref(false)
+const aiEditInstruction = ref('')
 const showHistory = ref(false)
 const showRecallPanel = ref(false)
 const showJinjaHelpModal = ref(false)
@@ -445,6 +458,9 @@ defineExpose({ focus })
         </div>
       </div>
       <div class="flex items-center space-x-2">
+        <Tooltip text="我的查询（云端保存）" position="bottom">
+          <button @click="emit('open-saved-queries')" class="p-1.5 text-gray-500 hover:text-blue-600"><BookmarkIcon class="w-4 h-4" /></button>
+        </Tooltip>
         <div class="relative">
           <Tooltip text="查看最近 20 条查询历史" position="bottom">
             <button @click="showHistory = !showHistory" class="p-1.5 text-gray-500 hover:text-blue-600"><ClockIcon class="w-4 h-4" /></button>
@@ -470,17 +486,54 @@ defineExpose({ focus })
           <button @click="clearSql" class="p-1.5 text-gray-500 hover:text-red-600"><TrashIcon class="w-4 h-4" /></button>
         </Tooltip>
 
-        <Tooltip text="执行查询 (Ctrl/Cmd+Enter)；有选中执行选中，否则执行光标处语句" position="bottom" align="end">
+        <Tooltip v-if="isAdmin" text="Admin：查看明文（跳过脱敏）" position="bottom">
+          <button
+            @click="emit('update:unmask', !unmask)"
+            :class="unmask ? 'text-amber-600 bg-amber-50' : 'text-gray-500'"
+            class="p-1.5 rounded-lg hover:bg-amber-100 transition-all"
+          ><EyeIcon class="w-4 h-4" /></button>
+        </Tooltip>
+
+        <Tooltip text="预览返回行数上限" position="bottom" align="end">
+          <select
+            v-if="hasPerm('element:lab:generate')"
+            :value="previewLimit"
+            class="h-8 px-2 text-xs border border-gray-200 rounded-md bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            @change="emit('update:previewLimit', Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option :value="50">50 行</option>
+            <option :value="100">100 行</option>
+            <option :value="200">200 行</option>
+            <option :value="500">500 行</option>
+            <option :value="1000">1000 行</option>
+          </select>
+        </Tooltip>
+
+        <Tooltip text="查看执行计划 (EXPLAIN)" position="bottom">
+          <button @click="emit('run-explain')" :disabled="executing || !sql.trim()" class="p-1.5 text-gray-500 hover:text-amber-600 disabled:opacity-40"><BoltIcon class="w-4 h-4" /></button>
+        </Tooltip>
+
+        <Tooltip v-if="isAiEnabled && hasPerm('element:lab:generate')" text="AI 增量编辑当前 SQL" position="bottom">
+          <button @click="showAiEditModal = true" :disabled="!sql.trim()" class="p-1.5 text-gray-500 hover:text-purple-600 disabled:opacity-40"><PencilSquareIcon class="w-4 h-4" /></button>
+        </Tooltip>
+
+        <Tooltip text="执行查询 (Ctrl/Cmd+Enter)" position="bottom" align="end">
           <button 
-            v-if="hasPerm('element:lab:generate')" 
+            v-if="hasPerm('element:lab:generate') && !executing" 
             @mousedown.prevent
             @click="handleRunQuery" 
-            :disabled="executing" 
-            class="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium flex items-center disabled:opacity-50 transition-all shadow-sm hover:bg-blue-700"
+            class="px-4 py-1.5 bg-blue-600 text-white rounded-md text-sm font-medium flex items-center transition-all shadow-sm hover:bg-blue-700"
           >
-            <PlayIcon v-if="!executing" class="w-4 h-4 mr-1" /> {{ executing ? '执行中...' : '运行' }}
+            <PlayIcon class="w-4 h-4 mr-1" /> 运行
           </button>
         </Tooltip>
+        <button
+          v-if="executing"
+          @click="emit('cancel-query')"
+          class="px-4 py-1.5 bg-red-600 text-white rounded-md text-sm font-medium flex items-center shadow-sm hover:bg-red-700"
+        >
+          <StopIcon class="w-4 h-4 mr-1" /> 取消
+        </button>
       </div>
     </div>
 
@@ -769,6 +822,21 @@ defineExpose({ focus })
         </button>
       </div>
     </teleport>
+
+    <div v-if="sensitiveWarnings?.length" class="px-3 py-1.5 bg-amber-50 border-t border-amber-100 text-[10px] text-amber-800 flex flex-wrap gap-2">
+      <span v-for="(w, i) in sensitiveWarnings" :key="i">⚠ {{ w.message }}</span>
+    </div>
+
+    <div v-if="showAiEditModal" class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+        <h3 class="font-bold text-gray-800">AI 增量编辑</h3>
+        <textarea v-model="aiEditInstruction" rows="3" placeholder="描述要如何修改当前 SQL..." class="w-full border rounded-xl p-3 text-sm" />
+        <div class="flex gap-2 justify-end">
+          <button class="px-4 py-2 border rounded-lg text-sm" @click="showAiEditModal = false">取消</button>
+          <button class="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold" :disabled="!aiEditInstruction.trim()" @click="emit('ai-edit-sql', aiEditInstruction); showAiEditModal = false; aiEditInstruction = ''">生成修改</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
