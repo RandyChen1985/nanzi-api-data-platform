@@ -130,3 +130,32 @@ class TableProfileIgnorePayload(BaseModel):
     table_name: str
     is_ignored: int
 
+
+class DataSourceTableScope(BaseModel):
+    all_tables: bool = False
+    tables: List[str] = []
+    configured: bool = False
+
+
+class DataSourceRolePermissionHolder(BaseModel):
+    id: int
+    role_code: str
+    role_name: str
+    member_count: int = 0
+    table_scope: DataSourceTableScope
+
+
+class DataSourceUserPermissionHolder(BaseModel):
+    id: int
+    user_name: str
+    status: int = 1
+    table_scope: DataSourceTableScope
+
+
+class DataSourcePermissionsResponse(BaseModel):
+    source_id: int
+    source_name: str
+    roles: List[DataSourceRolePermissionHolder] = []
+    users: List[DataSourceUserPermissionHolder] = []
+    admin_count: int = 0
+

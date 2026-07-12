@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
+import { ref, computed, onMounted, reactive, onUnmounted, nextTick } from 'vue'
 import draggable from 'vuedraggable'
 import axios from '@/utils/axios'
 import Toast from '@/components/Toast.vue'
@@ -15,6 +15,7 @@ import {
   PlusIcon,
   ArrowPathIcon,
   DocumentDuplicateIcon,
+  ShieldCheckIcon,
 } from '@heroicons/vue/24/outline'
 import type { DataSource } from '@/types/datasource'
 import {
@@ -735,11 +736,76 @@ const cancelProfiling = async (item: DataSource) => {
   }
 }
 
+type TableScope = {
+  all_tables: boolean
+  tables: string[]
+  configured: boolean
+}
+
+type DatasourcePermissionRole = {
+  id: number
+  role_code: string
+  role_name: string
+  member_count: number
+  table_scope: TableScope
+}
+
+type DatasourcePermissionUser = {
+  id: number
+  user_name: string
+  status: number
+  table_scope: TableScope
+}
+
+type DatasourcePermissionsData = {
+  source_id: number
+  source_name: string
+  roles: DatasourcePermissionRole[]
+  users: DatasourcePermissionUser[]
+  admin_count: number
+}
+
+const showPermissionsTarget = ref<DataSource | null>(null)
+const permissionsData = ref<DatasourcePermissionsData | null>(null)
+const loadingPermissions = ref(false)
+const permissionsTab = ref<'roles' | 'users'>('roles')
+
+const formatTableScope = (scope?: TableScope) => {
+  if (!scope?.configured) return '未配置表权限'
+  if (scope.all_tables) return '所有表'
+  if (scope.tables.length === 0) return '未配置表权限'
+  if (scope.tables.length <= 3) return scope.tables.join('、')
+  return `${scope.tables.slice(0, 3).join('、')} 等 ${scope.tables.length} 张表`
+}
+
+const openPermissionsView = async (item: DataSource) => {
+  showPermissionsTarget.value = item
+  permissionsData.value = null
+  loadingPermissions.value = true
+  permissionsTab.value = 'roles'
+  try {
+    const res = await axios.get(`/api/portal/datasource/datasources/${item.id}/permissions`)
+    permissionsData.value = res.data
+  } catch (e: any) {
+    showToast(e.response?.data?.detail || '获取授权信息失败', 'error')
+    showPermissionsTarget.value = null
+  } finally {
+    loadingPermissions.value = false
+  }
+}
+
+const closePermissionsView = () => {
+  showPermissionsTarget.value = null
+  permissionsData.value = null
+}
+
 // 查看摸排分析结果 Modal 状态
 const showProfilesTarget = ref<DataSource | null>(null)
 const viewTableProfiles = ref<any[]>([])
 const loadingViewProfiles = ref(false)
+const isRenderingProfiles = ref(false)
 const profilesSearchQuery = ref('')
+const profilesSortBy = ref<'name' | 'confidence_desc' | 'confidence_asc'>('confidence_desc')
 const selectedProfileTag = ref<string | null>(null)
 const isTagsExpanded = ref(false)
 const expandedTables = ref<Record<string, boolean>>({})
@@ -748,9 +814,11 @@ const loadingProfileDetails = ref<Record<string, boolean>>({})
 const openTableProfiles = async (item: DataSource) => {
   showProfilesTarget.value = item
   loadingViewProfiles.value = true
+  isRenderingProfiles.value = false
   viewTableProfiles.value = []
   profileModalTask.value = null
   profilesSearchQuery.value = ''
+  profilesSortBy.value = 'confidence_desc'
   selectedProfileTag.value = null
   isTagsExpanded.value = false
   expandedTables.value = {}
@@ -776,6 +844,20 @@ const openTableProfiles = async (item: DataSource) => {
     showToast('获取摸排结果失败', 'error')
   } finally {
     loadingViewProfiles.value = false
+    const profileCount = viewTableProfiles.value.length
+    if (profileCount > 0) {
+      isRenderingProfiles.value = true
+      await nextTick()
+      const renderDelay = profileCount > 500 ? 400 : profileCount > 100 ? 200 : 80
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            window.setTimeout(resolve, renderDelay)
+          })
+        })
+      })
+      isRenderingProfiles.value = false
+    }
   }
 }
 
@@ -804,6 +886,7 @@ const closeTableProfiles = () => {
   showProfilesTarget.value = null
   viewTableProfiles.value = []
   profileModalTask.value = null
+  isRenderingProfiles.value = false
 }
 
 const toggleTableExpand = (tableName: string) => {
@@ -843,20 +926,33 @@ const availableTags = computed(() => {
 })
 
 const filteredViewProfiles = computed(() => {
-  let list = viewTableProfiles.value
+  let list = [...viewTableProfiles.value]
 
   if (selectedProfileTag.value) {
     list = list.filter((p: any) => p.ai_tags && p.ai_tags.includes(selectedProfileTag.value))
   }
 
-  if (!profilesSearchQuery.value.trim()) return list
   const q = profilesSearchQuery.value.trim().toLowerCase()
-  return list.filter((p: any) =>
-    p.table_name.toLowerCase().includes(q) ||
-    (p.ai_term && p.ai_term.toLowerCase().includes(q)) ||
-    (p.ai_description && p.ai_description.toLowerCase().includes(q)) ||
-    (p.ai_tags && p.ai_tags.some((tag: string) => tag.toLowerCase().includes(q)))
-  )
+  if (q) {
+    list = list.filter((p: any) =>
+      p.table_name.toLowerCase().includes(q) ||
+      (p.ai_term && p.ai_term.toLowerCase().includes(q)) ||
+      (p.ai_description && p.ai_description.toLowerCase().includes(q)) ||
+      (p.ai_tags && p.ai_tags.some((tag: string) => tag.toLowerCase().includes(q)))
+    )
+  }
+
+  list.sort((a: any, b: any) => {
+    if (profilesSortBy.value === 'confidence_desc') {
+      return (b.confidence_score ?? 0) - (a.confidence_score ?? 0) || a.table_name.localeCompare(b.table_name)
+    }
+    if (profilesSortBy.value === 'confidence_asc') {
+      return (a.confidence_score ?? 0) - (b.confidence_score ?? 0) || a.table_name.localeCompare(b.table_name)
+    }
+    return a.table_name.localeCompare(b.table_name)
+  })
+
+  return list
 })
 
 const togglingIgnore = ref<Record<string, boolean>>({})
@@ -1299,6 +1395,14 @@ onUnmounted(() => {
             class="ml-auto text-[9px] text-purple-400 font-mono"
           >{{ profilingTasks[openMoreItem.id]?.completed_profiles }}</span>
         </button>
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 transition-colors"
+          @click="openPermissionsView(openMoreItem); closeMore()"
+        >
+          <ShieldCheckIcon class="w-3.5 h-3.5 shrink-0" />
+          查看授权
+        </button>
         <div class="h-px bg-gray-100 mx-2 my-1" />
         <button
           type="button"
@@ -1546,6 +1650,139 @@ onUnmounted(() => {
     <!-- Test Result Dialog -->
     <Teleport to="body">
       <div
+        v-if="showPermissionsTarget"
+        class="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-black/50"
+        @click.self="closePermissionsView"
+      >
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
+          <div class="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-lg font-bold text-gray-900">查看授权</h3>
+              <p class="text-xs text-gray-500 mt-0.5 font-mono">{{ showPermissionsTarget.source_name }}</p>
+            </div>
+            <button type="button" class="text-gray-400 hover:text-gray-600 p-1" @click="closePermissionsView">✕</button>
+          </div>
+
+          <div v-if="loadingPermissions" class="flex-1 flex flex-col items-center justify-center py-16">
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <p class="mt-3 text-sm text-gray-500">正在加载授权信息...</p>
+          </div>
+
+          <template v-else-if="permissionsData">
+            <div class="px-6 pt-4">
+              <div class="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-800">
+                <ShieldCheckIcon class="w-4 h-4 shrink-0" />
+                <span>
+                  平台管理员（{{ permissionsData.admin_count }} 人）默认拥有全部数据源访问权限。
+                  此处仅展示在角色/用户管理中<strong>直接配置</strong>的授权。
+                </span>
+              </div>
+
+              <div class="mt-4 flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+                <button
+                  type="button"
+                  class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+                  :class="permissionsTab === 'roles' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                  @click="permissionsTab = 'roles'"
+                >
+                  角色授权
+                  <span class="ml-1 text-gray-400">({{ permissionsData.roles.length }})</span>
+                </button>
+                <button
+                  type="button"
+                  class="px-3 py-1.5 text-xs font-medium rounded-md transition-colors"
+                  :class="permissionsTab === 'users' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                  @click="permissionsTab = 'users'"
+                >
+                  用户直授
+                  <span class="ml-1 text-gray-400">({{ permissionsData.users.length }})</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-6 py-4">
+              <div v-if="permissionsTab === 'roles'">
+                <div v-if="permissionsData.roles.length === 0" class="py-10 text-center text-sm text-gray-400">
+                  暂无角色被直接授权访问此数据源
+                </div>
+                <table v-else class="w-full text-sm">
+                  <thead>
+                    <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
+                      <th class="pb-2 font-medium">角色</th>
+                      <th class="pb-2 font-medium">成员数</th>
+                      <th class="pb-2 font-medium">表级范围</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-50">
+                    <tr v-for="role in permissionsData.roles" :key="role.id" class="text-gray-700">
+                      <td class="py-2.5 pr-3">
+                        <div class="font-medium text-gray-900">{{ role.role_name }}</div>
+                        <div class="text-[11px] text-gray-400 font-mono">{{ role.role_code }}</div>
+                      </td>
+                      <td class="py-2.5 pr-3 whitespace-nowrap">{{ role.member_count }}</td>
+                      <td class="py-2.5">
+                        <span
+                          class="inline-flex px-2 py-0.5 rounded text-xs"
+                          :class="role.table_scope.configured ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'"
+                        >
+                          {{ formatTableScope(role.table_scope) }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else>
+                <div v-if="permissionsData.users.length === 0" class="py-10 text-center text-sm text-gray-400">
+                  暂无用户被直接授权访问此数据源
+                </div>
+                <table v-else class="w-full text-sm">
+                  <thead>
+                    <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
+                      <th class="pb-2 font-medium">用户</th>
+                      <th class="pb-2 font-medium">状态</th>
+                      <th class="pb-2 font-medium">表级范围</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-50">
+                    <tr v-for="user in permissionsData.users" :key="user.id" class="text-gray-700">
+                      <td class="py-2.5 pr-3 font-medium text-gray-900">{{ user.user_name }}</td>
+                      <td class="py-2.5 pr-3">
+                        <span
+                          class="inline-flex px-2 py-0.5 rounded text-xs"
+                          :class="user.status === 1 ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'"
+                        >
+                          {{ user.status === 1 ? '启用' : '禁用' }}
+                        </span>
+                      </td>
+                      <td class="py-2.5">
+                        <span
+                          class="inline-flex px-2 py-0.5 rounded text-xs"
+                          :class="user.table_scope.configured ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'"
+                        >
+                          {{ formatTableScope(user.table_scope) }}
+                        </span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+
+          <div class="px-6 py-4 border-t border-gray-100 flex justify-end">
+            <button type="button" class="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg" @click="closePermissionsView">
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Test Result Dialog -->
+    <Teleport to="body">
+      <div
         v-if="showTestDialog"
         class="fixed inset-0 z-[9990] flex items-center justify-center p-4 bg-black/50"
         @click.self="closeTestDialog"
@@ -1602,7 +1839,27 @@ onUnmounted(() => {
               </button>
             </div>
 
-            <div class="p-6 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+            <div class="p-6 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar relative min-h-[280px]">
+              <div
+                v-if="loadingViewProfiles || isRenderingProfiles"
+                class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-white/90 backdrop-blur-[1px]"
+              >
+                <div class="relative">
+                  <div class="w-12 h-12 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
+                  <span class="absolute inset-0 flex items-center justify-center text-lg select-none">🤖</span>
+                </div>
+                <div class="text-center space-y-1 px-6">
+                  <p class="text-sm font-bold text-gray-800">
+                    {{ loadingViewProfiles ? '正在加载摸排画像...' : '正在渲染资产列表...' }}
+                  </p>
+                  <p class="text-xs text-gray-500">
+                    <template v-if="loadingViewProfiles">数据量较大时可能需要几秒钟，请稍候</template>
+                    <template v-else>共 {{ viewTableProfiles.length }} 张表，正在生成列表</template>
+                  </p>
+                </div>
+              </div>
+
+              <template v-if="!loadingViewProfiles && !isRenderingProfiles">
               <!-- 资产分析概览面板 -->
               <div v-if="!loadingViewProfiles && viewTableProfiles.length > 0" class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50/50 p-4 rounded-xl border border-gray-100 shrink-0">
                 <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
@@ -1644,14 +1901,24 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- 搜索框 -->
-              <ClearableInput
-                v-model="profilesSearchQuery"
-                show-search-icon
-                wrapper-class="w-full bg-gray-50"
-                input-class="py-2 text-sm"
-                placeholder="过滤表名、备注或标签分类..."
-              />
+              <!-- 搜索与排序 -->
+              <div class="flex flex-col sm:flex-row gap-2">
+                <ClearableInput
+                  v-model="profilesSearchQuery"
+                  show-search-icon
+                  wrapper-class="w-full sm:flex-1 bg-gray-50"
+                  input-class="py-2 text-sm"
+                  placeholder="过滤表名、备注或标签分类..."
+                />
+                <select
+                  v-model="profilesSortBy"
+                  class="shrink-0 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                >
+                  <option value="confidence_desc">置信度从高到低</option>
+                  <option value="confidence_asc">置信度从低到高</option>
+                  <option value="name">表名 A→Z</option>
+                </select>
+              </div>
 
               <!-- 快速标签过滤 -->
               <div v-if="availableTags.length > 0" class="flex flex-wrap items-center gap-1.5 pt-1">
@@ -1681,10 +1948,7 @@ onUnmounted(() => {
                 </button>
               </div>
 
-              <div v-if="loadingViewProfiles" class="py-12 text-center text-sm text-gray-400">
-                正在读取摸排资产结果...
-              </div>
-              <div v-else-if="filteredViewProfiles.length === 0" class="py-12 text-center text-gray-400 text-sm italic bg-gray-50 rounded-lg">
+              <div v-if="filteredViewProfiles.length === 0" class="py-12 text-center text-gray-400 text-sm italic bg-gray-50 rounded-lg">
                 暂无匹配的摸排表记录。
               </div>
               <div v-else class="space-y-3">
@@ -1806,6 +2070,7 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
+              </template>
             </div>
 
             <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end">

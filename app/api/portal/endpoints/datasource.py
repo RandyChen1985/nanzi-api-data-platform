@@ -5,10 +5,12 @@ import inspect
 from types import SimpleNamespace
 from app.schemas.datasource import (
     DataSourceCreate, DataSourceUpdate, DataSourceResponse, DataSourceConnectionTest,
-    DbProfileTaskResponse, DbTableProfileResponse, DbTableProfileSummaryResponse, TableProfileIgnorePayload
+    DbProfileTaskResponse, DbTableProfileResponse, DbTableProfileSummaryResponse, TableProfileIgnorePayload,
+    DataSourcePermissionsResponse,
 )
 from app.services.datasource_service import DataSourceService
 from app.services.db_profile_service import DbProfileService
+from app.services.permission_service import PermissionService
 from app.core.dependencies import require_admin, require_api_key, require_permission
 import logging
 
@@ -166,6 +168,26 @@ async def get_datasource(
     if not datasource:
         raise HTTPException(status_code=404, detail="Data source not found")
     return datasource
+
+
+@router.get(
+    "/datasources/{source_id}/permissions",
+    response_model=DataSourcePermissionsResponse,
+)
+async def get_datasource_permissions(
+    source_id: int,
+    user: dict = Depends(require_permission("element:datasource:edit")),
+):
+    """
+    查看指定数据源的直接授权主体（角色 / 用户）及表级范围。
+    """
+    datasource = await DataSourceService.get_datasource(source_id)
+    if not datasource:
+        raise HTTPException(status_code=404, detail="Data source not found")
+
+    result = await PermissionService.get_datasource_permission_holders(datasource.source_name)
+    result.source_id = source_id
+    return result
 
 @router.put("/datasources/{source_id}", response_model=DataSourceResponse)
 async def update_datasource(

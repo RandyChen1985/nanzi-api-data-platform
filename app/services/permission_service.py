@@ -188,3 +188,139 @@ class PermissionService:
                     business_roles=['SUPER_ADMIN'],
                     permissions=perm_set
                 )
+
+    @staticmethod
+    def _build_table_scope(data_table_codes: List[str], source_name: str):
+        from app.schemas.datasource import DataSourceTableScope
+
+        prefix = f"ds:{source_name}:table:"
+        all_tables = any(code == f"{prefix}*" for code in data_table_codes)
+        tables = sorted({
+            code[len(prefix):]
+            for code in data_table_codes
+            if code.startswith(prefix) and not code.endswith(":*")
+        })
+        return DataSourceTableScope(
+            all_tables=all_tables,
+            tables=tables,
+            configured=all_tables or len(tables) > 0,
+        )
+
+    @classmethod
+    async def get_datasource_permission_holders(cls, source_name: str):
+        from app.schemas.datasource import (
+            DataSourcePermissionsResponse,
+            DataSourceRolePermissionHolder,
+            DataSourceUserPermissionHolder,
+        )
+
+        ds_code = f"ds:{source_name}"
+        table_prefix = f"ds:{source_name}:table:"
+
+        async with get_db_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    SELECT user_id, role_id, perm_type, perm_code
+                    FROM sys_ui_permissions
+                    WHERE enabled = 1
+                    AND (
+                        (perm_type = 'datasource' AND perm_code = %s)
+                        OR (perm_type = 'data_table' AND perm_code LIKE %s)
+                    )
+                    """,
+                    (ds_code, f"{table_prefix}%"),
+                )
+                rows = await cursor.fetchall()
+
+                role_ids_with_ds: Set[int] = set()
+                user_ids_with_ds: Set[int] = set()
+                role_tables: Dict[int, List[str]] = {}
+                user_tables: Dict[int, List[str]] = {}
+
+                for user_id, role_id, perm_type, perm_code in rows:
+                    if role_id is not None:
+                        if perm_type == "datasource":
+                            role_ids_with_ds.add(role_id)
+                        elif perm_type == "data_table":
+                            role_tables.setdefault(role_id, []).append(perm_code)
+                    elif user_id is not None:
+                        if perm_type == "datasource":
+                            user_ids_with_ds.add(user_id)
+                        elif perm_type == "data_table":
+                            user_tables.setdefault(user_id, []).append(perm_code)
+
+                roles: List[DataSourceRolePermissionHolder] = []
+                if role_ids_with_ds:
+                    placeholders = ", ".join(["%s"] * len(role_ids_with_ds))
+                    role_id_list = list(role_ids_with_ds)
+                    await cursor.execute(
+                        f"SELECT id, role_code, role_name FROM sys_roles WHERE id IN ({placeholders})",
+                        tuple(role_id_list),
+                    )
+                    role_meta = {row[0]: (row[1], row[2]) for row in await cursor.fetchall()}
+
+                    await cursor.execute(
+                        f"""
+                        SELECT role_id, COUNT(*)
+                        FROM sys_user_role_relation
+                        WHERE role_id IN ({placeholders})
+                        GROUP BY role_id
+                        """,
+                        tuple(role_id_list),
+                    )
+                    member_counts = {row[0]: row[1] for row in await cursor.fetchall()}
+
+                    for role_id in sorted(role_ids_with_ds):
+                        role_code, role_name = role_meta.get(role_id, ("", ""))
+                        roles.append(
+                            DataSourceRolePermissionHolder(
+                                id=role_id,
+                                role_code=role_code,
+                                role_name=role_name,
+                                member_count=member_counts.get(role_id, 0),
+                                table_scope=cls._build_table_scope(
+                                    role_tables.get(role_id, []),
+                                    source_name,
+                                ),
+                            )
+                        )
+
+                users: List[DataSourceUserPermissionHolder] = []
+                if user_ids_with_ds:
+                    placeholders = ", ".join(["%s"] * len(user_ids_with_ds))
+                    user_id_list = list(user_ids_with_ds)
+                    await cursor.execute(
+                        f"SELECT id, user_name, status FROM api_users WHERE id IN ({placeholders})",
+                        tuple(user_id_list),
+                    )
+                    user_meta = {
+                        row[0]: (row[1], row[2]) for row in await cursor.fetchall()
+                    }
+
+                    for user_id in sorted(user_ids_with_ds):
+                        user_name, status = user_meta.get(user_id, ("", 1))
+                        users.append(
+                            DataSourceUserPermissionHolder(
+                                id=user_id,
+                                user_name=user_name,
+                                status=status,
+                                table_scope=cls._build_table_scope(
+                                    user_tables.get(user_id, []),
+                                    source_name,
+                                ),
+                            )
+                        )
+
+                await cursor.execute(
+                    "SELECT COUNT(*) FROM api_users WHERE role = 'admin' AND status = 1"
+                )
+                admin_count = (await cursor.fetchone() or [0])[0]
+
+                return DataSourcePermissionsResponse(
+                    source_id=0,
+                    source_name=source_name,
+                    roles=roles,
+                    users=users,
+                    admin_count=admin_count,
+                )
