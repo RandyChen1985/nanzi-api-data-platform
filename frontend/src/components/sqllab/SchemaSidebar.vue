@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { TableCellsIcon, ChevronRightIcon, ChevronDownIcon, CubeIcon, SparklesIcon, EyeIcon, StarIcon } from '@heroicons/vue/24/outline'
+import { StarIcon as StarSolidIcon } from '@heroicons/vue/24/solid'
 import ClearableInput from '../common/ClearableInput.vue'
 import LabJoinDiagram from './LabJoinDiagram.vue'
 import TableFavoriteActions, { type TableFavoriteInfo } from './TableFavoriteActions.vue'
@@ -27,11 +28,13 @@ const props = defineProps<{
   sourceId?: number | null
   joinPaths?: any[]
   tableFavorites?: Record<string, TableFavoriteInfo>
+  filterToSelected?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string[]): void
-  (e: 'update:autoContext', value: boolean): void 
+  (e: 'update:autoContext', value: boolean): void
+  (e: 'update:filterToSelected', value: boolean): void
   (e: 'refresh'): void
   (e: 'table-click', table: string): void
   (e: 'table-dblclick', table: string): void
@@ -44,6 +47,7 @@ const emit = defineEmits<{
   (e: 'toggle-favorite', tableName: string): void
   (e: 'toggle-pin', tableName: string): void
   (e: 'save-favorite-note', payload: { tableName: string; note: string }): void
+  (e: 'open-explorer'): void
 }>()
 
 const activeTab = ref<'tables' | 'favorites'>('tables')
@@ -140,6 +144,12 @@ watch(showTagPicker, (open) => {
   setTimeout(() => document.addEventListener('click', handler), 0)
 })
 
+watch(() => props.modelValue.length, (len) => {
+  if (len === 0 && props.filterToSelected) {
+    emit('update:filterToSelected', false)
+  }
+})
+
 const getConfidenceScore = (tableName: string) =>
   props.tableProfilesMap?.[tableName]?.confidence_score ?? 0
 
@@ -175,6 +185,11 @@ const sortTableList = (list: any[]) => {
 
 const filteredTables = computed(() => {
   let list = props.tables
+
+  if (props.filterToSelected && props.modelValue.length > 0) {
+    const selected = new Set(props.modelValue)
+    list = list.filter(t => selected.has(getTableName(t)))
+  }
 
   if (advancedMode.value) {
     if (selectedProfileTag.value) {
@@ -350,10 +365,25 @@ const focusFavoriteTable = (tableName: string) => {
               class="h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer animate-in zoom-in duration-200"
               title="全选/取消全选"
             />
-            <span class="text-xs font-bold uppercase tracking-wider transition-colors duration-500" :class="flashTitle ? 'text-indigo-600' : 'text-gray-500'">库表资产</span>
+            <span class="text-xs font-bold uppercase tracking-wider transition-colors duration-500" :class="flashTitle ? 'text-indigo-600' : 'text-gray-500'">
+              {{ filterToSelected ? '已选表' : '库表资产' }}
+            </span>
             <span class="ml-0.5 px-1.5 py-0.5 bg-gray-200 text-gray-500 rounded text-[10px] font-bold">{{ filteredTables.length }}</span>
           </div>
           <div class="flex items-center gap-2">
+            <button
+              v-if="hasProfiled"
+              type="button"
+              class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all duration-200"
+              :class="modelValue.length > 0
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white text-gray-400 border-gray-200 hover:border-indigo-300 hover:text-indigo-500'"
+              :title="modelValue.length > 0 ? `已探索选中 ${modelValue.length} 张表 (⌘⇧T)` : '打开表探索器 (⌘⇧T)'"
+              @click="emit('open-explorer')"
+            >
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              探索
+            </button>
             <!-- 高级模式胶囊开关（仅摸排完成时显示） -->
             <button
               v-if="hasProfiled"
@@ -372,6 +402,21 @@ const focusFavoriteTable = (tableName: string) => {
               <svg class="w-3.5 h-3.5" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             </button>
           </div>
+        </div>
+
+        <div v-if="modelValue.length > 0" class="px-3 py-1.5 border-b bg-white flex items-center gap-1.5">
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all"
+            :class="!filterToSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'"
+            @click="emit('update:filterToSelected', false)"
+          >全部 {{ tables.length }}</button>
+          <button
+            type="button"
+            class="px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all"
+            :class="filterToSelected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'"
+            @click="emit('update:filterToSelected', true)"
+          >已选 {{ modelValue.length }}</button>
         </div>
 
         <LabJoinDiagram v-if="joinPaths?.length" :join-paths="joinPaths || []" @insert="(s) => emit('insert-join', s)" />
@@ -487,75 +532,91 @@ const focusFavoriteTable = (tableName: string) => {
           </div>
         <div class="flex-1 overflow-y-auto p-1 custom-scrollbar">
           <div v-if="loading" class="p-4 text-center text-gray-400 text-xs italic">资源扫描中...</div>
-          <div v-else-if="filteredTables.length === 0" class="p-4 text-center text-gray-400 text-xs">无匹配资产</div>
+          <div v-else-if="filteredTables.length === 0" class="p-4 text-center text-gray-400 text-xs">
+            <template v-if="filterToSelected">暂无已选表，请{{ hasProfiled ? '通过「探索」选表或' : '' }}勾选侧栏表项</template>
+            <template v-else>无匹配资产</template>
+          </div>
           
           <div v-for="t in filteredTables" :key="typeof t === 'string' ? t : t.name">
-            <!-- 普通模式行 -->
+            <template v-if="!advancedMode">
+            <!-- 普通模式行：表头满宽展示，展开后操作栏在字段列表上方 -->
             <div
-              v-if="!advancedMode"
               @click="toggleExpand(typeof t === 'string' ? t : t.name, $event)" 
               @dblclick="handleTableDblClick(typeof t === 'string' ? t : t.name)"
               draggable="true"
               @dragstart="handleDragStart($event, typeof t === 'string' ? t : t.name)"
-              class="px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded cursor-pointer transition-colors group relative"
+              class="px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded cursor-pointer transition-colors"
               :class="[
-                isExpanded(typeof t === 'string' ? t : t.name) ? 'bg-blue-50/50' : '',
+                isExpanded(typeof t === 'string' ? t : t.name) ? 'bg-blue-50/50 rounded-b-none' : '',
                 tableFavorites?.[(typeof t === 'string' ? t : t.name)] ? 'border-l-2 border-l-amber-300/80' : '',
               ]"
             >
-              <div class="flex items-start justify-between gap-1">
-                <div class="flex items-start overflow-hidden flex-1 min-w-0 pr-1">
-                  <input 
-                    v-if="!autoContext"
-                    type="checkbox" 
-                    :checked="modelValue.includes(typeof t === 'string' ? t : t.name)"
-                    @change="(e) => {
-                      const checked = (e.target as HTMLInputElement).checked;
-                      const name = typeof t === 'string' ? t : t.name;
-                      const newVal = checked ? [...modelValue, name] : modelValue.filter(x => x !== name);
-                      emit('update:modelValue', newVal);
-                    }"
-                    @click.stop
-                    class="mt-0.5 mr-2 h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 shrink-0"
-                  />
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-1.5 min-w-0">
-                      <TableCellsIcon class="w-3 h-3 shrink-0" :class="modelValue.includes(typeof t === 'string' ? t : t.name) ? 'text-blue-500' : 'text-gray-400'" />
-                      <span class="truncate font-medium" :class="modelValue.includes(typeof t === 'string' ? t : t.name) ? 'text-blue-700 font-bold' : ''" :title="typeof t === 'string' ? t : t.name">
-                        {{ typeof t === 'string' ? t : t.name }}
-                      </span>
-                      <span v-if="typeof t !== 'string'" :class="t.type === 'VIEW' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'" class="text-[8px] px-1 py-0.5 rounded leading-none font-black shrink-0">
-                        {{ t.type }}
-                      </span>
-                    </div>
-                    <div
-                      v-if="tableFavorites?.[(typeof t === 'string' ? t : t.name)]?.note"
-                      class="text-[10px] text-blue-600 mt-px leading-snug pr-1 line-clamp-1"
-                      :title="tableFavorites[(typeof t === 'string' ? t : t.name)]?.note || ''"
-                    >📝 {{ tableFavorites[(typeof t === 'string' ? t : t.name)]?.note }}</div>
+              <div class="flex items-start min-w-0 gap-1">
+                <input 
+                  v-if="!autoContext"
+                  type="checkbox" 
+                  :checked="modelValue.includes(typeof t === 'string' ? t : t.name)"
+                  @change="(e) => {
+                    const checked = (e.target as HTMLInputElement).checked;
+                    const name = typeof t === 'string' ? t : t.name;
+                    const newVal = checked ? [...modelValue, name] : modelValue.filter(x => x !== name);
+                    emit('update:modelValue', newVal);
+                  }"
+                  @click.stop
+                  class="mt-0.5 h-3.5 w-3.5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 shrink-0"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1 min-w-0">
+                    <TableCellsIcon class="w-3 h-3 shrink-0" :class="modelValue.includes(typeof t === 'string' ? t : t.name) ? 'text-blue-500' : 'text-gray-400'" />
+                    <span
+                      class="truncate font-medium flex-1 min-w-0"
+                      :class="modelValue.includes(typeof t === 'string' ? t : t.name) ? 'text-blue-700 font-bold' : ''"
+                      :title="typeof t === 'string' ? t : t.name"
+                    >{{ typeof t === 'string' ? t : t.name }}</span>
+                    <span v-if="typeof t !== 'string'" :class="t.type === 'VIEW' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'" class="text-[8px] px-1 py-0.5 rounded leading-none font-black shrink-0">
+                      {{ t.type }}
+                    </span>
+                    <StarSolidIcon
+                      v-if="tableFavorites?.[(typeof t === 'string' ? t : t.name)]"
+                      class="w-3 h-3 text-amber-500 shrink-0"
+                    />
                   </div>
+                  <div
+                    v-if="tableFavorites?.[(typeof t === 'string' ? t : t.name)]?.note"
+                    class="text-[10px] text-blue-600 mt-px leading-snug line-clamp-1"
+                    :title="tableFavorites[(typeof t === 'string' ? t : t.name)]?.note || ''"
+                  >📝 {{ tableFavorites[(typeof t === 'string' ? t : t.name)]?.note }}</div>
                 </div>
-                <div class="flex items-center shrink-0">
-                  <button 
-                    @click.stop="emit('table-click', typeof t === 'string' ? t : t.name)" 
-                    class="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                    title="查看资产画像"
-                  >
-                    <EyeIcon class="w-3.5 h-3.5" />
-                  </button>
-                  <button 
-                    v-if="showAi"
-                    @click.stop="emit('table-ai', typeof t === 'string' ? t : t.name)" 
-                    class="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                    title="针对该表进行 AI 建模"
-                  >
-                    <SparklesIcon class="w-3.5 h-3.5" />
-                  </button>
-                  <component :is="isExpanded(typeof t === 'string' ? t : t.name) ? ChevronDownIcon : ChevronRightIcon" class="w-3 h-3 text-gray-400" />
-                </div>
+                <component
+                  :is="isExpanded(typeof t === 'string' ? t : t.name) ? ChevronDownIcon : ChevronRightIcon"
+                  class="w-3 h-3 text-gray-300 shrink-0 mt-0.5"
+                />
               </div>
+            </div>
+
+            <!-- 普通模式：展开后操作栏（在字段列表上方） -->
+            <div
+              v-if="isExpanded(typeof t === 'string' ? t : t.name)"
+              class="mx-1 mb-0.5 px-2 py-1 flex items-center justify-end gap-0.5 rounded-b border border-t-0 border-gray-100 bg-gray-50/90"
+              @click.stop
+            >
+              <button 
+                @click="emit('table-click', typeof t === 'string' ? t : t.name)" 
+                class="p-1 text-gray-400 hover:text-blue-600 hover:bg-white rounded"
+                title="查看资产画像"
+              >
+                <EyeIcon class="w-3.5 h-3.5" />
+              </button>
+              <button 
+                v-if="showAi"
+                @click="emit('table-ai', typeof t === 'string' ? t : t.name)" 
+                class="p-1 text-gray-400 hover:text-purple-600 hover:bg-white rounded"
+                title="针对该表进行 AI 建模"
+              >
+                <SparklesIcon class="w-3.5 h-3.5" />
+              </button>
               <TableFavoriteActions
-                variant="corner"
+                variant="overlay"
                 :table-name="typeof t === 'string' ? t : t.name"
                 :favorite="tableFavorites?.[typeof t === 'string' ? t : t.name]"
                 @toggle-favorite="emit('toggle-favorite', typeof t === 'string' ? t : t.name)"
@@ -563,6 +624,7 @@ const focusFavoriteTable = (tableName: string) => {
                 @save-note="(note) => emit('save-favorite-note', { tableName: typeof t === 'string' ? t : t.name, note })"
               />
             </div>
+            </template>
 
             <!-- 高级模式行：摸排信息展示 -->
             <div

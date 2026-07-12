@@ -183,6 +183,166 @@ class LabEnhancementService:
                 )
                 return cursor.rowcount > 0
 
+    # ---------- Table Explorer (keyword search) ----------
+
+    @staticmethod
+    async def aggregate_table_tags(source_id: int) -> List[Dict[str, Any]]:
+        """聚合摸排标签，供探索器左侧导航"""
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                await cursor.execute(
+                    """
+                    SELECT jt.tag AS name, COUNT(DISTINCT p.id) AS count
+                    FROM db_table_profiles p
+                    JOIN JSON_TABLE(
+                        COALESCE(p.ai_tags, JSON_ARRAY()),
+                        '$[*]' COLUMNS (tag VARCHAR(100) PATH '$')
+                    ) jt
+                    WHERE p.connection_id = %s
+                      AND p.is_ignored = 0
+                      AND jt.tag IS NOT NULL
+                      AND TRIM(jt.tag) != ''
+                    GROUP BY jt.tag
+                    ORDER BY count DESC, jt.tag ASC
+                    LIMIT 200
+                    """,
+                    (source_id,),
+                )
+                rows = await cursor.fetchall()
+                return [{"name": r["name"], "count": int(r["count"] or 0)} for r in rows]
+
+    @staticmethod
+    async def search_tables(
+        user_id: int,
+        source_id: int,
+        q: Optional[str] = None,
+        tag: Optional[str] = None,
+        scope: str = "all",
+        recent_tables: Optional[List[str]] = None,
+        page: int = 1,
+        page_size: int = 40,
+    ) -> Dict[str, Any]:
+        """关键词搜索表画像（分页），支持收藏/最近/标签筛选"""
+        page_size = min(max(int(page_size), 1), 100)
+        page = max(int(page), 1)
+        offset = (page - 1) * page_size
+
+        join_clause = """
+            FROM db_table_profiles p
+            LEFT JOIN lab_table_favorites f
+              ON f.user_id = %s AND f.source_id = %s
+             AND f.table_name COLLATE utf8mb4_unicode_ci = p.table_name
+            WHERE p.connection_id = %s AND p.is_ignored = 0
+        """
+        base_params: List[Any] = [user_id, source_id, source_id]
+        conditions: List[str] = []
+        cond_params: List[Any] = []
+
+        scope = (scope or "all").lower()
+        if scope == "profiled":
+            conditions.append("p.status = %s")
+            cond_params.append(2)
+        elif scope == "favorites":
+            conditions.append("f.id IS NOT NULL")
+        elif scope == "recent":
+            names = [t.strip() for t in (recent_tables or []) if t and t.strip()]
+            if not names:
+                return {"total": 0, "page": page, "page_size": page_size, "items": []}
+            placeholders = ", ".join(["%s"] * len(names))
+            conditions.append(f"p.table_name IN ({placeholders})")
+            cond_params.extend(names)
+
+        if tag and tag.strip():
+            conditions.append("JSON_CONTAINS(p.ai_tags, JSON_QUOTE(%s), '$')")
+            cond_params.append(tag.strip())
+
+        q_clean = (q or "").strip()
+        if q_clean:
+            like = f"%{q_clean}%"
+            conditions.append(
+                """(
+                    p.table_name LIKE %s OR p.ai_term LIKE %s OR p.ai_description LIKE %s
+                    OR f.note LIKE %s
+                    OR JSON_SEARCH(p.ai_tags, 'one', %s, NULL, '$[*]') IS NOT NULL
+                )"""
+            )
+            cond_params.extend([like, like, like, like, f"%{q_clean}%"])
+
+        where_extra = (" AND " + " AND ".join(conditions)) if conditions else ""
+
+        if q_clean:
+            exact = q_clean
+            prefix = f"{q_clean}%"
+            like = f"%{q_clean}%"
+            order_sql = """
+                (CASE
+                  WHEN p.table_name = %s THEN 0
+                  WHEN p.table_name LIKE %s THEN 1
+                  WHEN p.ai_term LIKE %s THEN 2
+                  WHEN JSON_SEARCH(p.ai_tags, 'one', %s, NULL, '$[*]') IS NOT NULL THEN 3
+                  WHEN p.ai_description LIKE %s THEN 4
+                  WHEN f.note LIKE %s THEN 5
+                  ELSE 6
+                END) ASC,
+                p.confidence_score DESC,
+                p.table_name ASC
+            """
+            order_params = [exact, prefix, like, like, like, like]
+        else:
+            order_sql = "p.confidence_score DESC, p.table_name ASC"
+            order_params = []
+
+        count_sql = f"SELECT COUNT(*) AS cnt {join_clause}{where_extra}"
+        list_sql = f"""
+            SELECT p.table_name, p.table_type, p.ai_term, p.ai_description, p.ai_tags,
+                   p.status, p.confidence_score, p.is_temporary,
+                   f.is_pinned, f.note AS favorite_note,
+                   (CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
+            {join_clause}{where_extra}
+            ORDER BY {order_sql}
+            LIMIT %s OFFSET %s
+        """
+
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                count_params = base_params + cond_params
+                await cursor.execute(count_sql, tuple(count_params))
+                total_row = await cursor.fetchone()
+                total = int(total_row["cnt"] if total_row else 0)
+
+                list_params = base_params + cond_params + order_params + [page_size, offset]
+                await cursor.execute(list_sql, tuple(list_params))
+                rows = await cursor.fetchall()
+
+        items: List[Dict[str, Any]] = []
+        for row in rows:
+            ai_tags = row.get("ai_tags")
+            if isinstance(ai_tags, str):
+                try:
+                    ai_tags = json.loads(ai_tags)
+                except Exception:
+                    ai_tags = []
+            items.append({
+                "table_name": row["table_name"],
+                "table_type": row["table_type"],
+                "ai_term": row.get("ai_term"),
+                "ai_description": row.get("ai_description"),
+                "ai_tags": ai_tags or [],
+                "status": row.get("status"),
+                "confidence_score": row.get("confidence_score"),
+                "is_temporary": bool(row.get("is_temporary")),
+                "is_favorite": bool(row.get("is_favorite")),
+                "is_pinned": bool(row.get("is_pinned")),
+                "favorite_note": row.get("favorite_note"),
+            })
+
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": items,
+        }
+
     # ---------- Export Jobs ----------
 
     @staticmethod

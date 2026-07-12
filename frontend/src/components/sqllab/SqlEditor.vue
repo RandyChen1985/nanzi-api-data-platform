@@ -3,7 +3,8 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { 
   PlayIcon, ClockIcon, CommandLineIcon, SparklesIcon, CircleStackIcon, TrashIcon, XMarkIcon,
   ListBulletIcon, PencilSquareIcon, CalendarDaysIcon, QuestionMarkCircleIcon,
-  BeakerIcon, TableCellsIcon, StopIcon, EyeIcon, BoltIcon, BookmarkIcon, CodeBracketIcon, AdjustmentsHorizontalIcon
+  BeakerIcon, TableCellsIcon, StopIcon, EyeIcon, BoltIcon, BookmarkIcon, CodeBracketIcon, AdjustmentsHorizontalIcon,
+  RectangleStackIcon,
 } from '@heroicons/vue/24/outline'
 import { Codemirror } from 'vue-codemirror'
 import { sql as sqlLang, MySQL, PostgreSQL, MariaSQL } from '@codemirror/lang-sql'
@@ -47,6 +48,7 @@ const props = defineProps<{
   unmask?: boolean
   isAdmin?: boolean
   sensitiveWarnings?: { level: string; message: string }[]
+  hasProfiled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +73,7 @@ const emit = defineEmits<{
   (e: 'run-explain'): void
   (e: 'update:unmask', value: boolean): void
   (e: 'open-saved-queries'): void
+  (e: 'open-table-explorer'): void
   (e: 'ai-edit-sql', instruction: string): void
   (e: 'save-history-as-template', item: HistoryItem): void
 }>()
@@ -511,6 +514,9 @@ defineExpose({ focus })
         </div>
       </div>
       <div class="flex items-center space-x-2">
+        <Tooltip v-if="hasProfiled" text="表探索器 (⌘⇧T)" position="bottom">
+          <button type="button" @click="emit('open-table-explorer')" class="p-1.5 text-gray-500 hover:text-indigo-600"><RectangleStackIcon class="w-4 h-4" /></button>
+        </Tooltip>
         <Tooltip text="SQL 片段库" position="bottom">
           <button @click="showSnippets = true" class="p-1.5 text-gray-500 hover:text-blue-600"><CodeBracketIcon class="w-4 h-4" /></button>
         </Tooltip>

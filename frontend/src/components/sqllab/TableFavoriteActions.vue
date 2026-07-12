@@ -12,7 +12,7 @@ export type TableFavoriteInfo = {
 const props = withDefaults(defineProps<{
   tableName: string
   favorite?: TableFavoriteInfo | null
-  variant?: 'inline' | 'corner'
+  variant?: 'inline' | 'corner' | 'overlay'
 }>(), {
   variant: 'corner',
 })
@@ -29,6 +29,7 @@ const noteInputRef = ref<HTMLTextAreaElement | null>(null)
 const pendingNoteOpen = ref(false)
 
 const isCorner = () => props.variant === 'corner'
+const isOverlay = () => props.variant === 'overlay'
 
 watch(() => props.favorite, (f) => {
   if (f && pendingNoteOpen.value) {
@@ -71,7 +72,7 @@ const cornerWrap = 'absolute bottom-0 right-0 z-10 flex items-center gap-0.5 px-
 <template>
   <div
     class="shrink-0"
-    :class="isCorner() ? [cornerWrap, showNote ? 'opacity-100' : hoverHidden] : 'flex items-center'"
+    :class="isCorner() ? [cornerWrap, showNote ? 'opacity-100' : hoverHidden] : (isOverlay() ? 'flex items-center gap-0.5' : 'flex items-center')"
     @click.stop
   >
     <button
@@ -79,7 +80,7 @@ const cornerWrap = 'absolute bottom-0 right-0 z-10 flex items-center gap-0.5 px-
       class="p-0.5 rounded transition-colors"
       :class="favorite
         ? 'text-amber-500 hover:text-amber-600'
-        : (isCorner() ? 'text-gray-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-500 ' + hoverHidden)"
+        : (isCorner() ? 'text-gray-400 hover:text-amber-500' : (isOverlay() ? 'text-gray-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-500 ' + hoverHidden))"
       :title="favorite ? '取消收藏' : '收藏此表'"
       @click="emit('toggle-favorite')"
     >
@@ -101,7 +102,7 @@ const cornerWrap = 'absolute bottom-0 right-0 z-10 flex items-center gap-0.5 px-
         class="p-0.5 rounded transition-colors"
         :class="favorite?.note
           ? 'text-blue-500 hover:text-blue-600'
-          : (isCorner() ? 'text-gray-400 hover:text-blue-500' : 'text-gray-300 hover:text-blue-500 ' + hoverHidden)"
+          : (isCorner() ? 'text-gray-400 hover:text-blue-500' : (isOverlay() ? 'text-gray-400 hover:text-blue-500' : 'text-gray-300 hover:text-blue-500 ' + hoverHidden))"
         :title="favorite?.note ? '编辑备注' : '添加备注（将自动收藏）'"
         @click="openNote"
       >

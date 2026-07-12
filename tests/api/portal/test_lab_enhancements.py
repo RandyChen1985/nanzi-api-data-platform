@@ -192,3 +192,68 @@ async def test_table_favorites_crud(client: AsyncClient, admin_auth_headers):
     listing = await client.get("/api/portal/lab/export", headers=admin_auth_headers)
     assert listing.status_code == 200
     assert any(j["id"] == job_id for j in listing.json())
+
+
+@pytest.mark.asyncio
+async def test_table_explorer_search_and_tags(client: AsyncClient, admin_auth_headers):
+    source_id = await _get_mysql_source_id(client, admin_auth_headers)
+    if not source_id:
+        pytest.skip("No datasource")
+
+    table_name = "pytest_explorer_search_table"
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                """
+                INSERT INTO db_table_profiles
+                (connection_id, table_name, table_type, ai_term, ai_description, ai_tags, status, confidence_score)
+                VALUES (%s, %s, 'table', '测试探索订单表', 'pytest 探索器关键词订单退款', JSON_ARRAY('交易', 'pytest'), 2, 88)
+                ON DUPLICATE KEY UPDATE
+                    ai_term=VALUES(ai_term),
+                    ai_description=VALUES(ai_description),
+                    ai_tags=VALUES(ai_tags),
+                    status=VALUES(status),
+                    confidence_score=VALUES(confidence_score)
+                """,
+                (source_id, table_name),
+            )
+
+    search = await client.get(
+        "/api/portal/lab/table-search",
+        params={"source_id": source_id, "q": "探索订单", "page": 1, "page_size": 20},
+        headers=admin_auth_headers,
+    )
+    assert search.status_code == 200
+    body = search.json()
+    assert body["total"] >= 1
+    assert any(item["table_name"] == table_name for item in body["items"])
+
+    tag_res = await client.get(
+        "/api/portal/lab/table-tags",
+        params={"source_id": source_id},
+        headers=admin_auth_headers,
+    )
+    assert tag_res.status_code == 200
+    tags = tag_res.json()
+    assert any(t["name"] == "pytest" for t in tags)
+
+    fav = await client.put(
+        "/api/portal/lab/table-favorites",
+        json={"source_id": source_id, "table_name": table_name, "is_pinned": False, "note": "探索器收藏"},
+        headers=admin_auth_headers,
+    )
+    assert fav.status_code == 200
+
+    fav_search = await client.get(
+        "/api/portal/lab/table-search",
+        params={"source_id": source_id, "scope": "favorites"},
+        headers=admin_auth_headers,
+    )
+    assert fav_search.status_code == 200
+    assert any(item["table_name"] == table_name for item in fav_search.json()["items"])
+
+    await client.delete(
+        "/api/portal/lab/table-favorites",
+        params={"source_id": source_id, "table_name": table_name},
+        headers=admin_auth_headers,
+    )

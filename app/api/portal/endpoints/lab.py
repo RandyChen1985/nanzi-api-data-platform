@@ -991,6 +991,40 @@ async def delete_table_favorite(
     return {"success": True}
 
 
+@router.get("/table-search")
+async def search_lab_tables(
+    source_id: int,
+    q: Optional[str] = None,
+    tag: Optional[str] = None,
+    scope: str = Query("all", description="all | profiled | favorites | recent"),
+    recent: Optional[str] = Query(None, description="scope=recent 时逗号分隔的表名"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(40, ge=1, le=100),
+    user=Depends(require_permission("element:lab:generate")),
+):
+    """表探索器：关键词搜索摸排画像（分页）"""
+    recent_tables = [t.strip() for t in recent.split(",") if t.strip()] if recent else None
+    return await LabEnhancementService.search_tables(
+        int(user["user_id"]),
+        source_id,
+        q=q,
+        tag=tag,
+        scope=scope,
+        recent_tables=recent_tables,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/table-tags")
+async def list_lab_table_tags(
+    source_id: int,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    """表探索器：聚合 AI 标签"""
+    return await LabEnhancementService.aggregate_table_tags(source_id)
+
+
 @router.post("/publish-check")
 async def publish_check(
     request: PublishCheckRequest,

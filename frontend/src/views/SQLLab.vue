@@ -27,6 +27,7 @@ import LabSqlDiff from '../components/sqllab/LabSqlDiff.vue'
 import LabAiFeedbackBar from '../components/sqllab/LabAiFeedbackBar.vue'
 import LabPublishSuccessModal from '../components/sqllab/LabPublishSuccessModal.vue'
 import LabApiTestModal from '../components/sqllab/LabApiTestModal.vue'
+import LabTableExplorer from '../components/sqllab/LabTableExplorer.vue'
 import Tooltip from '../components/common/Tooltip.vue'
 import { formatLabSqlSafe } from '../utils/formatLabSql'
 
@@ -49,6 +50,9 @@ const previewOffset = ref(0)
 const totalCount = ref<number | null>(null)
 const explainResult = ref<PreviewResult | null>(null)
 const showSavedQueries = ref(false)
+const showTableExplorer = ref(false)
+const sidebarFilterSelected = ref(false)
+const recentExplorerTables = ref<string[]>([])
 const showExportPanel = ref(false)
 const showSqlDiff = ref(false)
 const sqlDiffData = ref({ original: '', modified: '' })
@@ -391,6 +395,7 @@ watch(isAiProcessing, (processing) => {
 onUnmounted(() => {
   if (aiStatusDelayTimer) clearTimeout(aiStatusDelayTimer)
   if (aiElapsedTimer) clearInterval(aiElapsedTimer)
+  document.removeEventListener('keydown', onExplorerKeydown)
 })
 
 const aiExamples = [
@@ -657,10 +662,12 @@ const fetchAvailableTables = async () => {
 
 watch(selectedSourceId, () => {
   selectedTables.value = []
+  sidebarFilterSelected.value = false
   availableTables.value = []
   columnsCache.value = {}
   tableProfilesMap.value = {}
   tableFavorites.value = {}
+  loadRecentExplorerTables()
   fetchAvailableTables()
   fetchTableFavorites()
 })
@@ -696,6 +703,50 @@ const saveToHistory = (newSql: string, newParams: any, meta?: { execution_time_m
 const loadHistory = () => {
   const saved = localStorage.getItem('sql_lab_history')
   if (saved) { try { queryHistory.value = JSON.parse(saved) } catch (e) {} }
+}
+
+const recentTablesStorageKey = () =>
+  selectedSourceId.value ? `sqllab_recent_tables_${selectedSourceId.value}` : null
+
+const loadRecentExplorerTables = () => {
+  const key = recentTablesStorageKey()
+  if (!key) { recentExplorerTables.value = []; return }
+  try {
+    const raw = localStorage.getItem(key)
+    recentExplorerTables.value = raw ? JSON.parse(raw) : []
+  } catch {
+    recentExplorerTables.value = []
+  }
+}
+
+const pushRecentExplorerTables = (tables: string[]) => {
+  const key = recentTablesStorageKey()
+  if (!key || !tables.length) return
+  const merged = [...tables, ...recentExplorerTables.value.filter(t => !tables.includes(t))].slice(0, 30)
+  recentExplorerTables.value = merged
+  localStorage.setItem(key, JSON.stringify(merged))
+}
+
+const openTableExplorer = () => {
+  if (!hasProfiled.value) return
+  if (!selectedSourceId.value) return showToast('请先选择数据源', 'warning')
+  loadRecentExplorerTables()
+  showTableExplorer.value = true
+}
+
+const handleExplorerSelection = (tables: string[]) => {
+  selectedTables.value = [...tables]
+  pushRecentExplorerTables(tables)
+  sidebarFilterSelected.value = tables.length > 0
+  showTableExplorer.value = false
+}
+
+const onExplorerKeydown = (e: KeyboardEvent) => {
+  if (!hasProfiled.value) return
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 't') {
+    e.preventDefault()
+    openTableExplorer()
+  }
 }
 const restoreHistory = (item: {sql: string, params: any}) => {
   if (currentTab.value) { currentTab.value.sql = item.sql; currentTab.value.testParams = { ...item.params }; showToast('已还原历史查询', 'success') }
@@ -1541,6 +1592,8 @@ watch(() => publishForm.value.resource_key, async (key) => {
 
 onMounted(() => {
   fetchDataSources(); loadHistory(); loadTabs(); checkVectorSupport()
+  loadRecentExplorerTables()
+  document.addEventListener('keydown', onExplorerKeydown)
   
   if (labMode.value === 'api' && !hasApiMode.value && hasAnalystMode.value) {
     labMode.value = 'analyst'
@@ -1815,7 +1868,7 @@ onMounted(() => {
         <SchemaSidebar 
           v-show="!sidebarCollapsed" :style="{ width: `${sidebarWidth}px` }" class="flex-shrink-0"
           :tables="availableTables" :loading="loadingTables" :collapsed="sidebarCollapsed" :columns-cache="columnsCache" :flash-title="flashTableTitle"
-          v-model="selectedTables" v-model:auto-context="autoContext"
+          v-model="selectedTables" v-model:auto-context="autoContext" v-model:filter-to-selected="sidebarFilterSelected"
           :data-source-info="currentDataSourceInfo" :is-admin="isAdmin"
           :table-profiles-map="tableProfilesMap" :has-profiled="hasProfiled"
           :source-id="selectedSourceId"
@@ -1829,6 +1882,7 @@ onMounted(() => {
           @toggle-favorite="toggleTableFavorite"
           @toggle-pin="toggleTableFavoritePin"
           @save-favorite-note="saveTableFavoriteNote"
+          @open-explorer="openTableExplorer"
         />
         <ResizeHandle v-if="!sidebarCollapsed" direction="horizontal" @resize="handleSidebarResize" />
         <div class="flex-1 flex flex-col min-w-0">
@@ -1838,9 +1892,9 @@ onMounted(() => {
             :data-sources="dataSources" :history="queryHistory" :is-ai-enabled="isAiEnabled" :executing="currentTab?.executing || false"
             :ai-loading="aiLoading" :sidebar-collapsed="sidebarCollapsed" :has-perm="hasPerm" :available-tables="availableTables" :columns-cache="columnsCache"
             class="h-full" :lab-mode="labMode" :recalled-context="currentTab?.recalledContext || []"
-            :is-admin="isAdmin" :sensitive-warnings="sensitiveWarnings"
+            :is-admin="isAdmin" :sensitive-warnings="sensitiveWarnings" :has-profiled="hasProfiled"
             @create-tab="createTab" @close-tab="closeTab" @close-all-tabs="closeAllTabs" @close-other-tabs="closeOtherTabs" @update-tab-name="handleTabRename" @run-query="runQuery" @run-ai-check="runAiAction" @open-publish="openPublishModal" @restore-history="restoreHistory" @delete-history="deleteHistory" @clear-history="clearAllHistory" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed" @run-empty-test="runEmptyParamTest"
-            @cancel-query="cancelQuery" @run-explain="runExplain" @open-saved-queries="showSavedQueries = true" @ai-edit-sql="handleAiEdit"
+            @cancel-query="cancelQuery" @run-explain="runExplain" @open-saved-queries="showSavedQueries = true" @open-table-explorer="openTableExplorer" @ai-edit-sql="handleAiEdit"
             @save-history-as-template="saveHistoryAsTemplate"
           />
         </div>
@@ -1871,6 +1925,15 @@ onMounted(() => {
     <AnalysisChat :is-open="showAnalysisChat" :initial-query="currentTab?.sql" :data="currentTab?.result?.rows" :columns="currentTab?.result?.columns" @close="showAnalysisChat = false" @save-session="saveAnalysisSession" />
 
     <LabSavedQueriesPanel v-if="showSavedQueries" :source-id="selectedSourceId" :lab-mode="labMode" :current-sql="currentTab?.sql || ''" :test-params="currentTab?.testParams || {}" @load="loadSavedQuery" @close="showSavedQueries = false" />
+    <LabTableExplorer
+      v-if="showTableExplorer"
+      :source-id="selectedSourceId"
+      v-model="selectedTables"
+      :recent-tables="recentExplorerTables"
+      :table-favorites="tableFavorites"
+      @close="showTableExplorer = false"
+      @update:model-value="handleExplorerSelection"
+    />
     <LabExportPanel
       v-if="showExportPanel"
       :source-id="selectedSourceId"
