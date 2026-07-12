@@ -52,6 +52,12 @@ class AnalysisSessionSave(BaseModel):
     columns: Optional[List[Any]] = None
     messages: List[Any]
 
+class TableFavoriteUpsert(BaseModel):
+    source_id: int
+    table_name: str
+    is_pinned: bool = False
+    note: Optional[str] = Field(None, max_length=500)
+
 class PublishCheckRequest(BaseModel):
     source_id: int
     sql: str

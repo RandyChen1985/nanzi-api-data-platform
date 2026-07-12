@@ -1,6 +1,31 @@
-"""SQL Lab V37 增强 API 测试：保存查询、分析会话、异步导出列表"""
+"""SQL Lab 增强 API 测试：保存查询、分析会话、异步导出、表收藏"""
 import pytest
 from httpx import AsyncClient
+
+from app.core.database import get_db_connection
+
+
+@pytest.fixture(autouse=True)
+async def ensure_lab_table_favorites_table():
+    ddl = """
+    CREATE TABLE IF NOT EXISTS lab_table_favorites (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        source_id INT NOT NULL,
+        table_name VARCHAR(255) NOT NULL,
+        is_pinned TINYINT(1) DEFAULT 0,
+        note VARCHAR(500) NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_lab_fav_user_source_table (user_id, source_id, table_name),
+        INDEX idx_lab_fav_user_source (user_id, source_id),
+        INDEX idx_lab_fav_pinned (user_id, source_id, is_pinned)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """
+    async with get_db_connection() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute(ddl)
+    yield
 
 
 @pytest.fixture
@@ -101,7 +126,53 @@ async def test_analysis_session_crud(client: AsyncClient, admin_auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_export_job_list(client: AsyncClient, admin_auth_headers):
+async def test_table_favorites_crud(client: AsyncClient, admin_auth_headers):
+    source_id = await _get_mysql_source_id(client, admin_auth_headers)
+    if not source_id:
+        pytest.skip("No datasource")
+
+    upsert = await client.put(
+        "/api/portal/lab/table-favorites",
+        json={
+            "source_id": source_id,
+            "table_name": "pytest_fav_table",
+            "is_pinned": True,
+            "note": "常用表",
+        },
+        headers=admin_auth_headers,
+    )
+    assert upsert.status_code == 200
+
+    listing = await client.get(
+        "/api/portal/lab/table-favorites",
+        params={"source_id": source_id},
+        headers=admin_auth_headers,
+    )
+    assert listing.status_code == 200
+    fav = next((f for f in listing.json() if f["table_name"] == "pytest_fav_table"), None)
+    assert fav is not None
+    assert fav["is_pinned"] is True
+    assert fav["note"] == "常用表"
+
+    update = await client.put(
+        "/api/portal/lab/table-favorites",
+        json={
+            "source_id": source_id,
+            "table_name": "pytest_fav_table",
+            "is_pinned": False,
+            "note": "更新备注",
+        },
+        headers=admin_auth_headers,
+    )
+    assert update.status_code == 200
+
+    delete = await client.delete(
+        "/api/portal/lab/table-favorites",
+        params={"source_id": source_id, "table_name": "pytest_fav_table"},
+        headers=admin_auth_headers,
+    )
+    assert delete.status_code == 200
+
     source_id = await _get_mysql_source_id(client, admin_auth_headers)
     if not source_id:
         pytest.skip("No datasource")

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { PlayIcon, SparklesIcon, TableCellsIcon, DocumentTextIcon, ArrowsRightLeftIcon, ChartBarIcon, MagnifyingGlassIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, SparklesIcon, TableCellsIcon, DocumentTextIcon, ArrowsRightLeftIcon, ChartBarIcon, MagnifyingGlassIcon, XMarkIcon, CommandLineIcon } from '@heroicons/vue/24/outline'
 import MarkdownIt from 'markdown-it'
 import Tooltip from '../common/Tooltip.vue'
 import LabQuickChart from './LabQuickChart.vue'
@@ -9,6 +9,7 @@ import LabResultPivot from './LabResultPivot.vue'
 import LabResultCompare from './LabResultCompare.vue'
 import LabVirtualTable from './LabVirtualTable.vue'
 import LabAiFeedbackBar from './LabAiFeedbackBar.vue'
+import LabAiDebugPanel, { type AiLogEntry } from './LabAiDebugPanel.vue'
 import { useToast } from '../../composables/useToast'
 
 const { showToast } = useToast()
@@ -31,7 +32,7 @@ interface PreviewResult {
 }
 
 const props = defineProps<{
-  activeSubTab: 'result' | 'ai' | 'explain'
+  activeSubTab: 'result' | 'ai' | 'explain' | 'debug'
   result: PreviewResult | null
   explainResult: PreviewResult | null
   error: string | null
@@ -42,6 +43,7 @@ const props = defineProps<{
   labMode?: 'api' | 'analyst'
   hasPerm: (code: string) => boolean
   isAiEnabled: boolean
+  isAdmin?: boolean
   sql?: string
   recalledContext?: any[]
   previewLimit?: number
@@ -50,10 +52,11 @@ const props = defineProps<{
   compareSnapshot?: PreviewResult | null
   lastAiPrompt?: string
   aiFeedbackRating?: number | null
+  aiLogs?: AiLogEntry[]
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:activeSubTab', tab: 'result' | 'ai' | 'explain'): void
+  (e: 'update:activeSubTab', tab: 'result' | 'ai' | 'explain' | 'debug'): void
   (e: 'clear-result'): void
   (e: 'apply-ai-fix'): void
   (e: 'open-analysis'): void
@@ -63,6 +66,7 @@ const emit = defineEmits<{
   (e: 'page-change', offset: number): void
   (e: 'pin-baseline'): void
   (e: 'ai-feedback', rating: 1 | 2): void
+  (e: 'clear-ai-logs'): void
 }>()
 
 const sortColumn = ref<string | null>(null)
@@ -202,6 +206,17 @@ defineExpose({ scrollToTop })
         <button v-if="explainResult" @click="emit('update:activeSubTab', 'explain')" 
           class="px-8 py-3 text-sm font-semibold transition-all" 
           :class="activeSubTab==='explain' ? 'text-amber-600 border-b-2 border-amber-600 bg-white' : 'text-gray-500 hover:text-gray-700'">执行计划</button>
+        <button
+          v-if="isAdmin"
+          @click="emit('update:activeSubTab', 'debug')"
+          class="px-8 py-3 text-sm font-semibold transition-all relative"
+          :class="activeSubTab==='debug' ? 'text-gray-800 border-b-2 border-gray-700 bg-white' : 'text-gray-500 hover:text-gray-700'"
+        >
+          <span class="inline-flex items-center gap-1.5">
+            <CommandLineIcon class="w-4 h-4" /> 调试日志
+            <span v-if="aiLogs?.length" class="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+          </span>
+        </button>
       </div>
 
       <div v-if="activeSubTab === 'result'" class="flex items-center gap-2">
@@ -464,6 +479,10 @@ defineExpose({ scrollToTop })
           </div>
           <div class="prose prose-purple max-w-none text-gray-700 bg-purple-50/50 p-10 rounded-3xl border border-purple-100 overflow-auto flex-1"><div class="markdown-body" v-html="md.render(aiContent)"></div></div>
         </div>
+      </div>
+
+      <div v-else-if="activeSubTab === 'debug'" class="h-full min-h-[400px]">
+        <LabAiDebugPanel :logs="aiLogs || []" @clear="emit('clear-ai-logs')" />
       </div>
     </div>
 

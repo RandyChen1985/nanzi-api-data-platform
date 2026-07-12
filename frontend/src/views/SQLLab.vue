@@ -87,7 +87,7 @@ const setLabMode = (mode: 'api' | 'analyst') => {
 }
 
 // Layout State
-const sidebarWidth = ref(260)
+const sidebarWidth = ref(300)
 const editorHeight = ref(550)
 const sqllabContainer = ref<HTMLElement | null>(null)
 
@@ -129,7 +129,7 @@ interface DataSource { id: number; source_name: string; source_type: string }
 interface PreviewResult { columns: { name: string; type: string }[]; rows: any[][]; execution_time_ms: number; scanned_rows: number }
 interface QueryTab {
   id: string; name: string; sql: string; testParams: Record<string, any>; result: PreviewResult | null;
-  error: string | null; executing: boolean; activeSubTab: 'result' | 'ai' | 'explain';
+  error: string | null; executing: boolean; activeSubTab: 'result' | 'ai' | 'explain' | 'debug';
   aiContent: string; optimizedSql: string; aiDetectedParams: string[]; columnLabels: Record<string, string>;
   emptyTestPassed: boolean;
   recalledContext?: any[];
@@ -496,6 +496,105 @@ const fetchMetaStats = async () => {
 const tableProfilesMap = ref<Record<string, any>>({})
 const hasProfiled = computed(() => Object.keys(tableProfilesMap.value).length > 0)
 
+type TableFavoriteRow = { id: number; table_name: string; is_pinned: boolean; note?: string | null }
+const tableFavorites = ref<Record<string, TableFavoriteRow>>({})
+
+const fetchTableFavorites = async () => {
+  if (!selectedSourceId.value) {
+    tableFavorites.value = {}
+    return
+  }
+  try {
+    const res = await axios.get('/api/portal/lab/table-favorites', {
+      params: { source_id: selectedSourceId.value },
+    })
+    const map: Record<string, TableFavoriteRow> = {}
+    for (const row of res.data as TableFavoriteRow[]) {
+      map[row.table_name] = row
+    }
+    tableFavorites.value = map
+  } catch {
+    tableFavorites.value = {}
+  }
+}
+
+const upsertTableFavorite = async (
+  tableName: string,
+  patch: { is_pinned?: boolean; note?: string },
+) => {
+  if (!selectedSourceId.value) return
+  const existing = tableFavorites.value[tableName]
+  try {
+    const res = await axios.put('/api/portal/lab/table-favorites', {
+      source_id: selectedSourceId.value,
+      table_name: tableName,
+      is_pinned: patch.is_pinned ?? existing?.is_pinned ?? false,
+      note: patch.note !== undefined ? patch.note : (existing?.note || ''),
+    })
+    tableFavorites.value = {
+      ...tableFavorites.value,
+      [tableName]: {
+        id: res.data.id,
+        table_name: tableName,
+        is_pinned: patch.is_pinned ?? existing?.is_pinned ?? false,
+        note: patch.note !== undefined ? (patch.note || null) : (existing?.note ?? null),
+      },
+    }
+  } catch {
+    showToast('保存收藏失败', 'error')
+  }
+}
+
+const toggleTableFavorite = async (tableName: string) => {
+  if (!selectedSourceId.value) return
+  if (tableFavorites.value[tableName]) {
+    try {
+      await axios.delete('/api/portal/lab/table-favorites', {
+        params: { source_id: selectedSourceId.value, table_name: tableName },
+      })
+      const next = { ...tableFavorites.value }
+      delete next[tableName]
+      tableFavorites.value = next
+      showToast('已取消收藏', 'info')
+    } catch {
+      showToast('取消收藏失败', 'error')
+    }
+    return
+  }
+  try {
+    const res = await axios.put('/api/portal/lab/table-favorites', {
+      source_id: selectedSourceId.value,
+      table_name: tableName,
+      is_pinned: false,
+      note: '',
+    })
+    tableFavorites.value = {
+      ...tableFavorites.value,
+      [tableName]: { id: res.data.id, table_name: tableName, is_pinned: false, note: '' },
+    }
+    showToast('已收藏', 'success')
+  } catch {
+    showToast('收藏失败', 'error')
+  }
+}
+
+const toggleTableFavoritePin = async (tableName: string) => {
+  const fav = tableFavorites.value[tableName]
+  if (!fav) return
+  const nextPinned = !fav.is_pinned
+  await upsertTableFavorite(tableName, { is_pinned: nextPinned })
+  showToast(nextPinned ? '已置顶' : '已取消置顶', 'info')
+}
+
+const saveTableFavoriteNote = async (payload: { tableName: string; note: string }) => {
+  const { tableName, note } = payload
+  if (!tableFavorites.value[tableName]) {
+    await toggleTableFavorite(tableName)
+  }
+  await upsertTableFavorite(tableName, { note })
+  showToast('备注已保存', 'success')
+}
+
 const fetchTableProfiles = async () => {
   if (!selectedSourceId.value) return
   try {
@@ -561,7 +660,9 @@ watch(selectedSourceId, () => {
   availableTables.value = []
   columnsCache.value = {}
   tableProfilesMap.value = {}
+  tableFavorites.value = {}
   fetchAvailableTables()
+  fetchTableFavorites()
 })
 
 const fetchColumns = async (table: string) => {
@@ -1714,16 +1815,20 @@ onMounted(() => {
         <SchemaSidebar 
           v-show="!sidebarCollapsed" :style="{ width: `${sidebarWidth}px` }" class="flex-shrink-0"
           :tables="availableTables" :loading="loadingTables" :collapsed="sidebarCollapsed" :columns-cache="columnsCache" :flash-title="flashTableTitle"
-          v-model="selectedTables" v-model:auto-context="autoContext" :ai-logs="aiLogs"
+          v-model="selectedTables" v-model:auto-context="autoContext"
           :data-source-info="currentDataSourceInfo" :is-admin="isAdmin"
           :table-profiles-map="tableProfilesMap" :has-profiled="hasProfiled"
           :source-id="selectedSourceId"
           :join-paths="joinPaths"
+          :table-favorites="tableFavorites"
           @refresh="fetchAvailableTables" @table-click="openTableDetail" @fetch-columns="fetchColumns" @column-dblclick="handleColumnInsert"
           @fetch-profile-detail="fetchTableProfileDetail"
           @table-profile-generate="handleTableProfileGenerate"
           @table-ai="openTableAiSuggestion" :show-ai="isAiEnabled && hasPerm('element:lab:generate')"
-          @clear-logs="clearAiLogs" @insert-join="insertJoinSnippet"
+          @insert-join="insertJoinSnippet"
+          @toggle-favorite="toggleTableFavorite"
+          @toggle-pin="toggleTableFavoritePin"
+          @save-favorite-note="saveTableFavoriteNote"
         />
         <ResizeHandle v-if="!sidebarCollapsed" direction="horizontal" @resize="handleSidebarResize" />
         <div class="flex-1 flex flex-col min-w-0">
@@ -1747,16 +1852,18 @@ onMounted(() => {
           v-if="currentTab" ref="resultPanelRef" v-model:activeSubTab="currentTab.activeSubTab"
           :result="currentTab.result" :explain-result="explainResult" :error="currentTab.error" :executing="currentTab.executing" :ai-loading="aiLoading"
           :ai-content="currentTab.aiContent" :optimized-sql="currentTab.optimizedSql" :lab-mode="labMode" :has-perm="hasPerm"
-          :is-ai-enabled="isAiEnabled" :sql="currentTab.sql" :recalled-context="currentTab.recalledContext"
+          :is-ai-enabled="isAiEnabled" :is-admin="isAdmin" :sql="currentTab.sql" :recalled-context="currentTab.recalledContext"
           :preview-limit="previewLimit" :preview-offset="previewOffset" :total-count="totalCount"
           :compare-snapshot="currentTab.compareSnapshot"
           :last-ai-prompt="currentTab.lastAiPrompt"
           :ai-feedback-rating="currentTab.aiFeedbackRating ?? null"
+          :ai-logs="aiLogs"
           class="flex-1"
           @clear-result="handleClearResult" @apply-ai-fix="applyAiFix" @open-analysis="openAiAnalysis" @export-excel="exportToExcel"
           @export-async="openExportPanel" @ai-fix-error="handleAiFixError" @page-change="handlePageChange"
           @pin-baseline="pinBaseline"
           @ai-feedback="submitAiFeedback"
+          @clear-ai-logs="clearAiLogs"
         />
       </div>
     </div>

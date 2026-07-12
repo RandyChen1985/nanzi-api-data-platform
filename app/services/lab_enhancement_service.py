@@ -113,6 +113,76 @@ class LabEnhancementService:
                 )
                 return cursor.rowcount > 0
 
+    # ---------- Table Favorites ----------
+
+    @staticmethod
+    async def list_table_favorites(user_id: int, source_id: int) -> List[Dict[str, Any]]:
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                await cursor.execute(
+                    """
+                    SELECT id, source_id, table_name, is_pinned, note, created_at, updated_at
+                    FROM lab_table_favorites
+                    WHERE user_id=%s AND source_id=%s
+                    ORDER BY is_pinned DESC, updated_at DESC
+                    """,
+                    (user_id, source_id),
+                )
+                rows = await cursor.fetchall()
+                for r in rows:
+                    r["is_pinned"] = bool(r.get("is_pinned"))
+                    for k in ("created_at", "updated_at"):
+                        if r.get(k) and hasattr(r[k], "strftime"):
+                            r[k] = r[k].strftime("%Y-%m-%d %H:%M:%S")
+                return rows
+
+    @staticmethod
+    async def upsert_table_favorite(user_id: int, data: Dict[str, Any]) -> int:
+        async with get_db_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    INSERT INTO lab_table_favorites
+                    (user_id, source_id, table_name, is_pinned, note)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        is_pinned=VALUES(is_pinned),
+                        note=VALUES(note),
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        user_id,
+                        data["source_id"],
+                        data["table_name"],
+                        1 if data.get("is_pinned") else 0,
+                        (data.get("note") or "").strip() or None,
+                    ),
+                )
+                if cursor.lastrowid:
+                    return cursor.lastrowid
+                await cursor.execute(
+                    """
+                    SELECT id FROM lab_table_favorites
+                    WHERE user_id=%s AND source_id=%s AND table_name=%s
+                    """,
+                    (user_id, data["source_id"], data["table_name"]),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+
+    @staticmethod
+    async def delete_table_favorite(user_id: int, source_id: int, table_name: str) -> bool:
+        async with get_db_connection() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    """
+                    DELETE FROM lab_table_favorites
+                    WHERE user_id=%s AND source_id=%s AND table_name=%s
+                    """,
+                    (user_id, source_id, table_name),
+                )
+                return cursor.rowcount > 0
+
     # ---------- Export Jobs ----------
 
     @staticmethod

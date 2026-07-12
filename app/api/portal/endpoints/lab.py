@@ -12,6 +12,7 @@ from app.schemas.lab import (
     PreviewRequest, PublishRequest, AIRequest, AIGenerateRequest, AIProfileGenerateRequest,
     ExplainRequest, RiskCheckRequest, ExportRequest, SavedQueryCreate, SavedQueryUpdate,
     AiFeedbackRequest, AnalysisSessionSave, PublishCheckRequest, AIEditRequest,
+    TableFavoriteUpsert,
 )
 
 from app.services.ai_service import AIService
@@ -956,6 +957,37 @@ async def delete_analysis_session(
     ok = await LabEnhancementService.delete_analysis_session(int(user["user_id"]), session_id)
     if not ok:
         raise HTTPException(status_code=404, detail="会话不存在")
+    return {"success": True}
+
+
+@router.get("/table-favorites")
+async def list_table_favorites(
+    source_id: int,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    return await LabEnhancementService.list_table_favorites(int(user["user_id"]), source_id)
+
+
+@router.put("/table-favorites")
+async def upsert_table_favorite(
+    request: TableFavoriteUpsert,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    fid = await LabEnhancementService.upsert_table_favorite(int(user["user_id"]), request.model_dump())
+    return {"id": fid}
+
+
+@router.delete("/table-favorites")
+async def delete_table_favorite(
+    source_id: int,
+    table_name: str,
+    user=Depends(require_permission("element:lab:generate")),
+):
+    ok = await LabEnhancementService.delete_table_favorite(
+        int(user["user_id"]), source_id, table_name
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="收藏不存在")
     return {"success": True}
 
 
