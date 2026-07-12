@@ -22,6 +22,7 @@ import ResultPanel from '../components/sqllab/ResultPanel.vue'
 import ResizeHandle from '../components/common/ResizeHandle.vue'
 import AnalysisChat from '../components/sqllab/AnalysisChat.vue'
 import LabSavedQueriesPanel from '../components/sqllab/LabSavedQueriesPanel.vue'
+import LabExportPanel from '../components/sqllab/LabExportPanel.vue'
 import LabSqlDiff from '../components/sqllab/LabSqlDiff.vue'
 import LabAiFeedbackBar from '../components/sqllab/LabAiFeedbackBar.vue'
 import LabPublishSuccessModal from '../components/sqllab/LabPublishSuccessModal.vue'
@@ -48,6 +49,7 @@ const previewOffset = ref(0)
 const totalCount = ref<number | null>(null)
 const explainResult = ref<PreviewResult | null>(null)
 const showSavedQueries = ref(false)
+const showExportPanel = ref(false)
 const showSqlDiff = ref(false)
 const sqlDiffData = ref({ original: '', modified: '' })
 const joinPaths = ref<any[]>([])
@@ -720,34 +722,10 @@ const runExplain = async () => {
   }
 }
 
-const exportAsync = async () => {
+const openExportPanel = () => {
   if (!currentTab.value?.sql || !selectedSourceId.value) return
   if (!hasPerm('element:lab:export')) return showToast('暂无导出权限', 'error')
-  try {
-    const res = await axios.post('/api/portal/lab/export', {
-      source_id: selectedSourceId.value,
-      sql: currentTab.value.sql,
-      params: currentTab.value.testParams,
-      format: 'csv',
-    })
-    const jobId = res.data.job_id
-    showToast('导出任务已创建，正在处理...', 'info')
-    const poll = setInterval(async () => {
-      try {
-        const job = await axios.get(`/api/portal/lab/export/${jobId}`)
-        if (job.data.status === 2) {
-          clearInterval(poll)
-          window.open(`/api/portal/lab/export/${jobId}/download`, '_blank')
-          showToast(`导出完成，共 ${job.data.row_count} 行`, 'success')
-        } else if (job.data.status === 3) {
-          clearInterval(poll)
-          showToast(job.data.error_message || '导出失败', 'error')
-        }
-      } catch { clearInterval(poll) }
-    }, 2000)
-  } catch {
-    showToast('创建导出任务失败', 'error')
-  }
+  showExportPanel.value = true
 }
 
 const handleAiEdit = async (instruction: string) => {
@@ -1771,7 +1749,7 @@ onMounted(() => {
           :ai-feedback-rating="currentTab.aiFeedbackRating ?? null"
           class="flex-1"
           @clear-result="handleClearResult" @apply-ai-fix="applyAiFix" @open-analysis="openAiAnalysis" @export-excel="exportToExcel"
-          @export-async="exportAsync" @ai-fix-error="handleAiFixError" @page-change="handlePageChange"
+          @export-async="openExportPanel" @ai-fix-error="handleAiFixError" @page-change="handlePageChange"
           @pin-baseline="pinBaseline"
           @ai-feedback="submitAiFeedback"
         />
@@ -1781,6 +1759,13 @@ onMounted(() => {
     <AnalysisChat :is-open="showAnalysisChat" :initial-query="currentTab?.sql" :data="currentTab?.result?.rows" :columns="currentTab?.result?.columns" @close="showAnalysisChat = false" @save-session="saveAnalysisSession" />
 
     <LabSavedQueriesPanel v-if="showSavedQueries" :source-id="selectedSourceId" :lab-mode="labMode" :current-sql="currentTab?.sql || ''" :test-params="currentTab?.testParams || {}" @load="loadSavedQuery" @close="showSavedQueries = false" />
+    <LabExportPanel
+      v-if="showExportPanel"
+      :source-id="selectedSourceId"
+      :sql="currentTab?.sql || ''"
+      :test-params="currentTab?.testParams || {}"
+      @close="showExportPanel = false"
+    />
     <LabSqlDiff v-if="showSqlDiff" :original="sqlDiffData.original" :modified="sqlDiffData.modified" @apply="applySqlDiff" @close="showSqlDiff = false" />
 
     <LabPublishSuccessModal

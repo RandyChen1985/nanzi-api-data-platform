@@ -775,6 +775,14 @@ async def create_export_job(
     return {"job_id": job_id, "status": "pending"}
 
 
+@router.get("/export")
+async def list_export_jobs(
+    limit: int = Query(30, ge=1, le=100),
+    user=Depends(require_permission("element:lab:export")),
+):
+    return await LabEnhancementService.list_export_jobs(int(user["user_id"]), limit)
+
+
 @router.get("/export/{job_id}")
 async def get_export_job(job_id: int, user=Depends(require_permission("element:lab:export"))):
     job = await LabEnhancementService.get_export_job(int(user["user_id"]), job_id)

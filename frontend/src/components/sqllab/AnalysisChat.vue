@@ -6,9 +6,13 @@ import {
   SparklesIcon,
   CommandLineIcon,
   DocumentDuplicateIcon,
-  CheckIcon
+  CheckIcon,
+  ClockIcon,
+  TrashIcon,
 } from "@heroicons/vue/24/outline";
 import { renderMarkdown } from "../../utils/markdown";
+import axios from "@/utils/axios";
+import { useToast } from "@/composables/useToast";
 import VChart from "vue-echarts";
 import { use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -42,6 +46,12 @@ const emit = defineEmits<{
   (e: "close"): void;
   (e: "save-session", payload: { title: string; messages: Message[] }): void;
 }>();
+
+const { showToast } = useToast();
+const showSessionPanel = ref(false);
+const sessions = ref<{ id: number; title: string; sql_text?: string; created_at: string }[]>([]);
+const sessionsLoading = ref(false);
+const suppressAutoStart = ref(false);
 
 const copiedId = ref<number | null>(null);
 const copiedCodeId = ref<string | null>(null);
@@ -87,6 +97,50 @@ const lastAnalyzedQuery = ref("");
 const resetChat = () => {
   messages.value = [];
   lastAnalyzedQuery.value = props.initialQuery || "";
+  suppressAutoStart.value = false;
+};
+
+const fetchSessions = async () => {
+  sessionsLoading.value = true;
+  try {
+    const res = await axios.get("/api/portal/lab/analysis-sessions");
+    sessions.value = res.data;
+  } catch {
+    showToast("加载历史会话失败", "error");
+  } finally {
+    sessionsLoading.value = false;
+  }
+};
+
+const openSessionPanel = async () => {
+  showSessionPanel.value = true;
+  await fetchSessions();
+};
+
+const loadSession = async (sessionId: number) => {
+  try {
+    const res = await axios.get(`/api/portal/lab/analysis-sessions/${sessionId}`);
+    const data = res.data;
+    const msgs = (data.messages_json || []) as Message[];
+    messages.value = msgs;
+    lastAnalyzedQuery.value = data.sql_text || props.initialQuery || "";
+    suppressAutoStart.value = true;
+    showSessionPanel.value = false;
+    showToast(`已加载「${data.title}」`, "success");
+    scrollToBottom();
+  } catch {
+    showToast("加载会话失败", "error");
+  }
+};
+
+const deleteSession = async (sessionId: number) => {
+  try {
+    await axios.delete(`/api/portal/lab/analysis-sessions/${sessionId}`);
+    sessions.value = sessions.value.filter(s => s.id !== sessionId);
+    showToast("已删除", "info");
+  } catch {
+    showToast("删除失败", "error");
+  }
 };
 
 interface Message {
@@ -246,9 +300,17 @@ const parseMessageContent = (content: string) => {
   }
 
 watch(
+  () => props.initialQuery,
+  (q, oldQ) => {
+    if (q !== oldQ) suppressAutoStart.value = false
+  },
+);
+
+watch(
   () => props.isOpen,
   (newVal) => {
     if (newVal) {
+      if (suppressAutoStart.value) return;
       // 如果 SQL 变化了，或者还没有任何消息，则重置并开始新分析
       if (
         props.initialQuery !== lastAnalyzedQuery.value ||
@@ -272,10 +334,18 @@ onMounted(() => {
 </script>
 
 <template>
-  <div
-    v-if="isOpen"
-    class="fixed inset-y-0 right-0 w-full md:w-[75%] bg-white shadow-2xl z-[10000] flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-300"
-  >
+  <Teleport to="body">
+    <div v-if="isOpen" class="fixed inset-0 z-[10000] flex justify-end">
+      <!-- 遮罩：点击关闭，并突出右侧抽屉 -->
+      <div
+        class="absolute inset-0 bg-gray-900/45 backdrop-blur-[2px]"
+        aria-hidden="true"
+        @click="emit('close')"
+      />
+
+      <div
+        class="relative h-full w-full md:w-[75%] max-w-5xl bg-white shadow-2xl flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-300"
+      >
     <!-- Header -->
     <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
       <div class="flex items-center gap-2">
@@ -283,6 +353,12 @@ onMounted(() => {
         <h3 class="font-bold text-gray-900">AI 数据专家分析</h3>
       </div>
       <div class="flex items-center gap-2">
+        <button
+          @click="openSessionPanel"
+          class="px-3 py-1 text-xs font-bold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-100 flex items-center gap-1"
+        >
+          <ClockIcon class="w-3.5 h-3.5" /> 历史会话
+        </button>
         <button
           v-if="messages.length > 0"
           @click="emit('save-session', { title: `分析 ${new Date().toLocaleString()}`, messages })"
@@ -388,6 +464,40 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Session History Panel -->
+    <div
+      v-if="showSessionPanel"
+      class="absolute inset-0 z-10 bg-white/95 backdrop-blur-sm flex flex-col"
+    >
+      <div class="p-4 border-b flex justify-between items-center">
+        <h4 class="font-bold text-gray-800 text-sm">历史分析会话</h4>
+        <button class="text-gray-400 hover:text-gray-600" @click="showSessionPanel = false">
+          <XMarkIcon class="w-5 h-5" />
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-3 custom-scrollbar">
+        <div v-if="sessionsLoading" class="text-center py-8 text-gray-400 text-sm">加载中...</div>
+        <div v-else-if="!sessions.length" class="text-center py-8 text-gray-400 text-sm">暂无保存的会话</div>
+        <div
+          v-for="s in sessions"
+          :key="s.id"
+          class="p-3 mb-2 rounded-xl border hover:border-indigo-200 hover:bg-indigo-50/30 flex justify-between items-center gap-2 group cursor-pointer"
+          @click="loadSession(s.id)"
+        >
+          <div class="min-w-0 flex-1">
+            <div class="font-bold text-sm text-gray-800 truncate">{{ s.title }}</div>
+            <div class="text-[10px] text-gray-400 mt-0.5">{{ s.created_at }}</div>
+          </div>
+          <button
+            class="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0"
+            @click.stop="deleteSession(s.id)"
+          >
+            <TrashIcon class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Input Area -->
     <div class="p-4 border-t bg-white">
       <div class="relative flex items-center">
@@ -412,7 +522,9 @@ onMounted(() => {
         Powered by AI Data Insight Engine
       </p>
     </div>
-  </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -442,13 +554,25 @@ onMounted(() => {
   margin-bottom: 0.75em;
   line-height: 1.6;
 }
-:deep(.prose h2), :deep(.prose h3) {
+:deep(.prose h2), :deep(.prose h3), :deep(.prose h4) {
   margin-top: 1.5em;
   margin-bottom: 0.8em;
   font-weight: 800;
   color: #1e293b;
   border-bottom: 1px solid #f1f5f9;
   padding-bottom: 0.3em;
+}
+:deep(.prose blockquote) {
+  margin: 0.75em 0;
+  padding: 0.5em 0.75em;
+  border-left: 3px solid #c7d2fe;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.9em;
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+:deep(.prose blockquote p) {
+  margin: 0;
 }
 :deep(.prose ul), :deep(.prose ol) {
   margin-top: 0.75em;

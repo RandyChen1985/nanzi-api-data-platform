@@ -126,12 +126,27 @@ function fixPipeTables(text: string): string {
   return out.join('\n')
 }
 
+/** Markdown 结构行（标题、引用、列表等），不应被当作纯文本表格 */
+function isMarkdownStructureLine(line: string): boolean {
+  const t = line.trim()
+  if (!t) return false
+  return /^#{1,6}\s/.test(t)
+    || /^>\s?/.test(t)
+    || /^[-*+]\s+/.test(t)
+    || /^\d+\.\s+/.test(t)
+    || /^```/.test(t)
+    || /^-{3,}$/.test(t)
+    || /^\*{3,}$/.test(t)
+}
+
 function splitTableRow(row: string, colCount: number): string[] | null {
   const t = row.trim()
-  if (!t) return null
+  if (!t || isMarkdownStructureLine(t)) return null
   if (colCount === 2) {
     const m = t.match(/^(\S+)\s+(.+)$/)
-    if (m?.[1] != null && m[2] != null) return [m[1], m[2].trim()]
+    if (m?.[1] != null && m[2] != null && !m[1].startsWith('#') && m[1] !== '>') {
+      return [m[1], m[2].trim()]
+    }
   }
   const byTab = t.split(/\t+/).map(c => c.trim()).filter(Boolean)
   if (byTab.length === colCount) return byTab
@@ -146,7 +161,7 @@ function convertPlainTextTables(text: string): string {
   return blocks.map(block => {
     const lines = block.split('\n').map(l => l.trimEnd()).filter(l => l.trim())
     if (lines.length < 2) return block
-    if (lines.some(l => l.includes('|'))) return block
+    if (lines.some(l => l.includes('|') || isMarkdownStructureLine(l))) return block
 
     const firstLine = lines[0]
     if (!firstLine) return block

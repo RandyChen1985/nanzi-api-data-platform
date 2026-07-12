@@ -136,6 +136,28 @@ class LabEnhancementService:
                 return cursor.lastrowid
 
     @staticmethod
+    async def list_export_jobs(user_id: int, limit: int = 30) -> List[Dict[str, Any]]:
+        async with get_db_connection() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cursor:
+                await cursor.execute(
+                    """
+                    SELECT id, source_id, format, status, row_count, error_message,
+                           created_at, completed_at
+                    FROM lab_export_jobs
+                    WHERE user_id=%s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                    """,
+                    (user_id, limit),
+                )
+                rows = await cursor.fetchall()
+                for r in rows:
+                    for k in ("created_at", "completed_at"):
+                        if r.get(k) and hasattr(r[k], "strftime"):
+                            r[k] = r[k].strftime("%Y-%m-%d %H:%M:%S")
+                return rows
+
+    @staticmethod
     async def get_export_job(user_id: int, job_id: int) -> Optional[Dict[str, Any]]:
         async with get_db_connection() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
