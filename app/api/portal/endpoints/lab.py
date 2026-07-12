@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from app.core.dependencies import require_admin, require_api_key, require_permission
 from app.services.datasource_service import DataSourceService
 from app.services.pool_manager import DataSourcePoolManager
@@ -775,6 +775,14 @@ async def create_export_job(
     return {"job_id": job_id, "status": "pending"}
 
 
+@router.get("/export")
+async def list_export_jobs(
+    limit: int = Query(30, ge=1, le=100),
+    user=Depends(require_permission("element:lab:export")),
+):
+    return await LabEnhancementService.list_export_jobs(int(user["user_id"]), limit)
+
+
 @router.get("/export/{job_id}")
 async def get_export_job(job_id: int, user=Depends(require_permission("element:lab:export"))):
     job = await LabEnhancementService.get_export_job(int(user["user_id"]), job_id)
@@ -859,6 +867,40 @@ async def ai_edit_sql(request: AIEditRequest, user=Depends(require_permission("e
         return {"sql": sql, "original_sql": request.sql}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ai/feedback")
+async def list_ai_feedback(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    rating: Optional[int] = Query(None, ge=1, le=2),
+    user_name: Optional[str] = None,
+    source_id: Optional[int] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    include_stats: bool = False,
+    user=Depends(require_api_key),
+):
+    """SQL Lab AI 生成反馈列表（默认近 30 天）"""
+    perms = user.get("permissions", {})
+    elements = perms.get("elements", []) if isinstance(perms, dict) else []
+    menus = perms.get("menus", []) if isinstance(perms, dict) else []
+    if user.get("role") != "admin" and "menu:lab:feedback" not in menus:
+        raise HTTPException(status_code=403, detail="Permission denied: menu:lab:feedback")
+
+    can_view_all = user.get("role") == "admin" or "element:lab:feedback:manage" in elements
+    return await LabEnhancementService.list_ai_feedback(
+        int(user["user_id"]),
+        can_view_all,
+        page=page,
+        size=size,
+        rating=rating,
+        user_name=user_name if can_view_all else None,
+        source_id=source_id,
+        start_time=start_time,
+        end_time=end_time,
+        include_stats=include_stats,
+    )
 
 
 @router.post("/ai/feedback")

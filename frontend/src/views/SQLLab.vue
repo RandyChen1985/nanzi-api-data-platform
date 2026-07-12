@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { 
   CircleStackIcon, SparklesIcon, XMarkIcon, CubeIcon,
   ChevronRightIcon, ChevronUpIcon, ChevronDownIcon, QuestionMarkCircleIcon, 
@@ -21,10 +22,16 @@ import ResultPanel from '../components/sqllab/ResultPanel.vue'
 import ResizeHandle from '../components/common/ResizeHandle.vue'
 import AnalysisChat from '../components/sqllab/AnalysisChat.vue'
 import LabSavedQueriesPanel from '../components/sqllab/LabSavedQueriesPanel.vue'
+import LabExportPanel from '../components/sqllab/LabExportPanel.vue'
 import LabSqlDiff from '../components/sqllab/LabSqlDiff.vue'
+import LabAiFeedbackBar from '../components/sqllab/LabAiFeedbackBar.vue'
+import LabPublishSuccessModal from '../components/sqllab/LabPublishSuccessModal.vue'
+import LabApiTestModal from '../components/sqllab/LabApiTestModal.vue'
 import Tooltip from '../components/common/Tooltip.vue'
+import { formatLabSqlSafe } from '../utils/formatLabSql'
 
 const { showToast } = useToast()
+const router = useRouter()
 const { isFullscreen, toggleFullscreen } = useFullscreen()
 
 // --- State ---
@@ -42,6 +49,7 @@ const previewOffset = ref(0)
 const totalCount = ref<number | null>(null)
 const explainResult = ref<PreviewResult | null>(null)
 const showSavedQueries = ref(false)
+const showExportPanel = ref(false)
 const showSqlDiff = ref(false)
 const sqlDiffData = ref({ original: '', modified: '' })
 const joinPaths = ref<any[]>([])
@@ -50,7 +58,12 @@ const pendingRunSql = ref<string | undefined>(undefined)
 const showPublishCheck = ref(false)
 const publishCheckResult = ref<any>(null)
 const sensitiveWarnings = ref<{ level: string; message: string }[]>([])
-const lastAiPrompt = ref('')
+const aiAutoRun = ref(localStorage.getItem('sqllab_ai_auto_run') === '1')
+const showPublishSuccess = ref(false)
+const publishedResourceKey = ref('')
+const showApiTestModal = ref(false)
+const publishSqlDiff = ref({ original: '', modified: '' })
+const showPublishSqlDiff = ref(false)
 
 const showTableDetailModal = ref(false)
 const detailTable = ref('')
@@ -121,6 +134,9 @@ interface QueryTab {
   emptyTestPassed: boolean;
   recalledContext?: any[];
   lastAiPrompt?: string;
+  aiFeedbackRating?: number | null;
+  aiFeedbackBarDismissed?: boolean;
+  compareSnapshot?: PreviewResult | null;
 }
 
 // --- Tab Management ---
@@ -143,11 +159,13 @@ const aiPlaceholder = computed(() => {
 
 const createTab = (initialSql?: string) => {
   const id = Math.random().toString(36).substring(7)
+  const source = dataSources.value.find(ds => ds.id === selectedSourceId.value)
   tabs.value.push({
-    id, name: `查询 ${tabs.value.length + 1}`, sql: initialSql || '',
+    id, name: `查询 ${tabs.value.length + 1}`, sql: initialSql ? formatLabSqlSafe(initialSql, source?.source_type || 'mysql') : '',
     testParams: { user_pattern: '%' }, result: null, error: null, executing: false, activeSubTab: 'result',
     aiContent: '', optimizedSql: '', aiDetectedParams: [], columnLabels: {}, emptyTestPassed: false,
-    recalledContext: []
+    recalledContext: [], compareSnapshot: null, lastAiPrompt: undefined, aiFeedbackRating: null,
+    aiFeedbackBarDismissed: false,
   })
   activeTabIndex.value = tabs.value.length - 1
 }
@@ -178,7 +196,14 @@ const closeOtherTabs = (index: number) => {
 // --- Sources & Metadata ---
 
 const saveTabs = () => {
-  const data = tabs.value.map(t => ({ name: t.name, sql: t.sql, testParams: t.testParams }))
+  const data = tabs.value.map(t => ({
+    name: t.name,
+    sql: t.sql,
+    testParams: t.testParams,
+    lastAiPrompt: t.lastAiPrompt || '',
+    aiFeedbackRating: t.aiFeedbackRating ?? null,
+    aiFeedbackBarDismissed: !!t.aiFeedbackBarDismissed,
+  }))
   localStorage.setItem('sql_lab_tabs', JSON.stringify(data))
 }
 
@@ -192,7 +217,10 @@ const loadTabs = () => {
           id: Math.random().toString(36).substring(7), name: d.name, sql: d.sql, testParams: d.testParams,
           result: null, error: null, executing: false, activeSubTab: 'result',
           aiContent: '', optimizedSql: '', aiDetectedParams: [], columnLabels: {}, emptyTestPassed: false,
-          recalledContext: []
+          recalledContext: [], compareSnapshot: null,
+          lastAiPrompt: d.lastAiPrompt || undefined,
+          aiFeedbackRating: d.aiFeedbackRating ?? null,
+          aiFeedbackBarDismissed: !!d.aiFeedbackBarDismissed,
         })
       })
     } catch (e) { createTab() }
@@ -258,7 +286,7 @@ const suggestions = ref<{title: string, description: string, sql: string}[]>([])
 const loadingSuggestions = ref(false)
 const aiContextTable = ref<string | null>(null)
 const selectedSuggestionIdx = ref(0)
-const queryHistory = ref<{sql: string, params: any, timestamp: number}[]>([])
+const queryHistory = ref<{sql: string, params: any, timestamp: number, execution_time_ms?: number, row_count?: number, success?: boolean}[]>([])
 
 const selectedSuggestion = computed(() => suggestions.value[selectedSuggestionIdx.value] ?? null)
 
@@ -549,10 +577,19 @@ const fetchColumns = async (table: string) => {
 const handleColumnInsert = (colName: string) => { if (currentTab.value) currentTab.value.sql += ` ${colName}` }
 const handleTabRename = (idx: number, name: string) => { if (tabs.value[idx]) tabs.value[idx].name = name }
 
-const saveToHistory = (newSql: string, newParams: any) => {
-  if (queryHistory.value.length > 0 && queryHistory.value[0]?.sql === newSql) return
-  queryHistory.value.unshift({ sql: newSql, params: { ...newParams }, timestamp: Date.now() })
-  if (queryHistory.value.length > 20) queryHistory.value = queryHistory.value.slice(0, 20)
+watch(aiAutoRun, (v) => localStorage.setItem('sqllab_ai_auto_run', v ? '1' : '0'))
+
+const saveToHistory = (newSql: string, newParams: any, meta?: { execution_time_ms?: number; row_count?: number; success?: boolean }) => {
+  if (queryHistory.value.length > 0 && queryHistory.value[0]?.sql === newSql && meta?.success !== false) return
+  queryHistory.value.unshift({
+    sql: newSql,
+    params: { ...newParams },
+    timestamp: Date.now(),
+    execution_time_ms: meta?.execution_time_ms,
+    row_count: meta?.row_count,
+    success: meta?.success ?? true,
+  })
+  if (queryHistory.value.length > 30) queryHistory.value = queryHistory.value.slice(0, 30)
   localStorage.setItem('sql_lab_history', JSON.stringify(queryHistory.value))
 }
 const loadHistory = () => {
@@ -638,10 +675,15 @@ const runQuery = async (overrideSql?: string, skipRisk = false) => {
 
     currentTab.value.result = res.data
     totalCount.value = res.data.total_count ?? null
-    saveToHistory(sqlToRun, currentTab.value.testParams)
+    saveToHistory(sqlToRun, currentTab.value.testParams, {
+      execution_time_ms: res.data.execution_time_ms,
+      row_count: res.data.rows?.length,
+      success: true,
+    })
   } catch (e: any) {
     if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') return
     currentTab.value.error = e.response?.data?.message || e.response?.data?.detail || e.message
+    saveToHistory(sqlToRun, currentTab.value.testParams, { success: false })
   } finally {
     currentTab.value.executing = false
     queryAbortController.value = null
@@ -680,34 +722,10 @@ const runExplain = async () => {
   }
 }
 
-const exportAsync = async () => {
+const openExportPanel = () => {
   if (!currentTab.value?.sql || !selectedSourceId.value) return
   if (!hasPerm('element:lab:export')) return showToast('暂无导出权限', 'error')
-  try {
-    const res = await axios.post('/api/portal/lab/export', {
-      source_id: selectedSourceId.value,
-      sql: currentTab.value.sql,
-      params: currentTab.value.testParams,
-      format: 'csv',
-    })
-    const jobId = res.data.job_id
-    showToast('导出任务已创建，正在处理...', 'info')
-    const poll = setInterval(async () => {
-      try {
-        const job = await axios.get(`/api/portal/lab/export/${jobId}`)
-        if (job.data.status === 2) {
-          clearInterval(poll)
-          window.open(`/api/portal/lab/export/${jobId}/download`, '_blank')
-          showToast(`导出完成，共 ${job.data.row_count} 行`, 'success')
-        } else if (job.data.status === 3) {
-          clearInterval(poll)
-          showToast(job.data.error_message || '导出失败', 'error')
-        }
-      } catch { clearInterval(poll) }
-    }, 2000)
-  } catch {
-    showToast('创建导出任务失败', 'error')
-  }
+  showExportPanel.value = true
 }
 
 const handleAiEdit = async (instruction: string) => {
@@ -720,32 +738,51 @@ const handleAiEdit = async (instruction: string) => {
       mode: labMode.value,
       tables: selectedTables.value,
     })
-    sqlDiffData.value = { original: currentTab.value.sql, modified: res.data.sql }
+    sqlDiffData.value = { original: currentTab.value.sql, modified: formatSqlForCurrentSource(res.data.sql) }
     showSqlDiff.value = true
   } catch (e: any) {
     showToast(e.response?.data?.detail || 'AI 编辑失败', 'error')
   }
 }
 
+const formatSqlForCurrentSource = (sql: string) => {
+  const source = dataSources.value.find(ds => ds.id === selectedSourceId.value)
+  return formatLabSqlSafe(sql, source?.source_type || 'mysql')
+}
+
+const dismissAiFeedbackBar = () => {
+  if (currentTab.value) currentTab.value.aiFeedbackBarDismissed = true
+}
+
 const applySqlDiff = () => {
-  if (currentTab.value) currentTab.value.sql = sqlDiffData.value.modified
+  if (currentTab.value) currentTab.value.sql = formatSqlForCurrentSource(sqlDiffData.value.modified)
   showSqlDiff.value = false
   showToast('已应用 SQL 修改', 'success')
 }
 
-const submitAiFeedback = async (rating: number) => {
-  if (!currentTab.value) return
+const submitAiFeedback = async (rating: 1 | 2) => {
+  if (!currentTab.value?.lastAiPrompt) return
+  if (currentTab.value.aiFeedbackRating != null) return
   try {
     await axios.post('/api/portal/lab/ai/feedback', {
       source_id: selectedSourceId.value,
-      prompt: lastAiPrompt.value || currentTab.value.lastAiPrompt,
+      prompt: currentTab.value.lastAiPrompt,
       generated_sql: currentTab.value.sql,
       rating,
       execution_success: !!currentTab.value.result && !currentTab.value.error,
     })
+    currentTab.value.aiFeedbackRating = rating
     showToast(rating === 2 ? '感谢反馈！' : '已记录，我们会持续改进', 'info')
-  } catch { /* ignore */ }
+  } catch {
+    showToast('反馈提交失败', 'error')
+  }
 }
+
+const showAiFeedbackBar = computed(() =>
+  !!currentTab.value?.lastAiPrompt
+  && hasPerm('element:lab:generate')
+  && !currentTab.value?.aiFeedbackBarDismissed
+)
 
 const loadSavedQuery = (q: any) => {
   if (currentTab.value) {
@@ -757,10 +794,44 @@ const loadSavedQuery = (q: any) => {
   showToast(`已加载「${q.name}」`, 'success')
 }
 
-const insertJoinSnippet = (snippet: string) => {
-  if (currentTab.value) {
-    currentTab.value.sql = currentTab.value.sql.trim() + '\n' + snippet
+const pinBaseline = () => {
+  if (!currentTab.value?.result) return
+  if (currentTab.value.compareSnapshot) {
+    currentTab.value.compareSnapshot = null
+    showToast('已清除对比基准', 'info')
+  } else {
+    currentTab.value.compareSnapshot = JSON.parse(JSON.stringify(currentTab.value.result))
+    showToast('已固定当前结果为对比基准', 'success')
   }
+}
+
+const saveHistoryAsTemplate = async (item: { sql: string; params: any; timestamp?: number }) => {
+  if (!selectedSourceId.value) return
+  const name = `历史 ${new Date(item.timestamp || Date.now()).toLocaleString()}`
+  try {
+    await axios.post('/api/portal/lab/saved-queries', {
+      name,
+      sql: item.sql,
+      source_id: selectedSourceId.value,
+      lab_mode: labMode.value,
+      test_params: item.params,
+    })
+    showToast('已另存为云端查询模板', 'success')
+  } catch {
+    showToast('保存失败', 'error')
+  }
+}
+
+const insertJoinSnippet = (snippet: string) => {
+  if (!currentTab.value) return
+  const line = snippet.trim()
+  if (!line) return
+  const existing = currentTab.value.sql.trim()
+  if (existing.split('\n').some(l => l.trim() === line)) {
+    showToast('该 JOIN 片段已在编辑器中', 'info')
+    return
+  }
+  currentTab.value.sql = existing ? `${existing}\n${line}` : line
 }
 
 const saveAnalysisSession = async (payload: { title: string; messages: any[] }) => {
@@ -871,10 +942,11 @@ const submitAiTask = async () => {
       const targetTab = currentTab.value
       if (!targetTab) return
 
-      targetTab.sql = res.data.sql
+      targetTab.sql = formatSqlForCurrentSource(res.data.sql)
       targetTab.recalledContext = res.data.recalled_context || []
       targetTab.lastAiPrompt = promptVal
-      lastAiPrompt.value = promptVal
+      targetTab.aiFeedbackRating = null
+      targetTab.aiFeedbackBarDismissed = false
       targetTab.name = promptVal.slice(0, 10) + (promptVal.length > 10 ? '...' : '')
       
       const debug = res.data.debug_info
@@ -895,7 +967,26 @@ const submitAiTask = async () => {
 
       addAiLog(`AI 生成 SQL 成功，耗时 ${res.headers?.['x-process-time'] || 'N/A'}ms`, 'success')
       aiPrompt.value = ''
-      showToast('SQL 已生成', 'success') 
+      showToast('SQL 已生成', 'success')
+
+      if (aiAutoRun.value) {
+        await runQuery(undefined, true)
+        if (targetTab.error && isAiEnabled.value) {
+          try {
+            const fixRes = await axios.post('/api/portal/lab/ai/fix-error', {
+              sql: targetTab.sql,
+              error: targetTab.error,
+              source_id: sourceId,
+            })
+            const fixed = fixRes.data.content?.match(/```sql([\s\S]*?)```/)?.[1]?.trim()
+            if (fixed) {
+              targetTab.sql = formatSqlForCurrentSource(fixed)
+              showToast('已自动纠错并重试', 'info')
+              await runQuery(undefined, true)
+            }
+          } catch { /* ignore */ }
+        }
+      }
     }
   } catch (e: any) { 
     const errorMsg = e.response?.data?.detail || e.message || '未知错误'
@@ -980,7 +1071,7 @@ const handleAiFixError = async () => {
 
 const applyAiFix = () => {
   if (currentTab.value?.optimizedSql) {
-    currentTab.value.sql = currentTab.value.optimizedSql
+    currentTab.value.sql = formatSqlForCurrentSource(currentTab.value.optimizedSql)
     currentTab.value.activeSubTab = 'result'
     nextTick(() => {
       // 1. Focus Editor
@@ -1126,7 +1217,7 @@ const handleTableProfileGenerate = async (table: string) => {
       const targetTab = currentTab.value
       if (!targetTab) return
 
-      targetTab.sql = res.data.sql
+      targetTab.sql = formatSqlForCurrentSource(res.data.sql)
       targetTab.recalledContext = []
       const label = res.data.profile_summary?.ai_term || table
       targetTab.name = `${label} 分析`
@@ -1263,6 +1354,9 @@ const proceedOpenPublish = () => {
   const vars = new Set<string>()
   const matches = sql.match(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)
   if (matches) matches.forEach(m => vars.add(m.replace(/\{\{\s*|\s*\}\}/g, '')))
+
+  const inferred = publishCheckResult.value?.checks?.find((c: any) => c.name === 'param_schema')?.params || []
+  inferred.forEach((p: any) => vars.add(p.name))
   
   const allParams = new Set([...currentTab.value.aiDetectedParams, ...vars])
   selectedFilters.value = [...allParams]
@@ -1307,8 +1401,9 @@ const handlePublish = async () => {
   try {
     await axios.post('/api/portal/lab/publish', payload)
     const key = publishForm.value.resource_key
-    showToast(`API 发布成功：${key}，可在资源管理中查看`, 'success')
+    publishedResourceKey.value = key
     showPublishModal.value = false
+    showPublishSuccess.value = true
   } catch (e: any) {
     showToast('发布失败: ' + (e.response?.data?.detail || e.message), 'error')
   } finally {
@@ -1326,7 +1421,19 @@ const mockJsonResponse = computed(() => {
   return { code: 200, message: "success", data: { items: [sampleItem], total: 1, page: 1, size: 20 }, trace_id: "req_xxxxxx" }
 })
 
-onMounted(() => { 
+watch(() => publishForm.value.resource_key, async (key) => {
+  if (!key || key.length < 3) return
+  try {
+    const res = await axios.get('/api/portal/meta/resources')
+    const list = Array.isArray(res.data) ? res.data : res.data?.items || []
+    const found = list.find((r: any) => r.resource_key === key)
+    if (found?.custom_sql && currentTab.value && found.custom_sql !== currentTab.value.sql) {
+      publishSqlDiff.value = { original: found.custom_sql, modified: currentTab.value.sql }
+    }
+  } catch { /* ignore */ }
+})
+
+onMounted(() => {
   fetchDataSources(); loadHistory(); loadTabs(); checkVectorSupport()
   
   if (labMode.value === 'api' && !hasApiMode.value && hasAnalystMode.value) {
@@ -1496,6 +1603,15 @@ onMounted(() => {
           </button>
         </Tooltip>
 
+        <Tooltip text="生成后自动试跑（失败则 AI 纠错一次）" position="top">
+          <button
+            type="button"
+            @click="aiAutoRun = !aiAutoRun"
+            class="shrink-0 px-2 py-1 rounded-full text-[10px] font-bold border transition-all"
+            :class="aiAutoRun ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-gray-100 text-gray-500 border-gray-200'"
+          >自动试跑</button>
+        </Tooltip>
+
         <div class="flex-1 relative flex items-center min-w-0 group/ai">
           <input
             v-if="hasPerm('element:lab:generate')"
@@ -1566,6 +1682,28 @@ onMounted(() => {
       </div>
     </div>
 
+    <div
+      v-if="showAiFeedbackBar"
+      class="shrink-0 px-4 py-2 bg-gradient-to-r from-indigo-50 to-violet-50 border-b border-indigo-100 flex items-center justify-between gap-3"
+    >
+      <LabAiFeedbackBar
+        :prompt="currentTab?.lastAiPrompt"
+        :rating="currentTab?.aiFeedbackRating ?? null"
+        @rate="submitAiFeedback"
+      />
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-[10px] text-indigo-400 hidden md:inline">本 Tab 内有效，切换/刷新后仍可评价</span>
+        <button
+          type="button"
+          class="p-1 rounded-md text-indigo-400 hover:text-indigo-700 hover:bg-indigo-100/80"
+          title="关闭"
+          @click="dismissAiFeedbackBar"
+        >
+          <XMarkIcon class="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+
     <div class="flex flex-col flex-1 min-h-0 space-y-4" :class="{ 'blur-sm grayscale opacity-50 pointer-events-none': noAccessToAnyDataSource || noLabModeAccess }">
       <div class="flex flex-row overflow-hidden" :style="{ height: isFullscreen ? 'calc(100vh - 350px)' : `${editorHeight}px` }">
         <SchemaSidebar 
@@ -1593,6 +1731,7 @@ onMounted(() => {
             :is-admin="isAdmin" :sensitive-warnings="sensitiveWarnings"
             @create-tab="createTab" @close-tab="closeTab" @close-all-tabs="closeAllTabs" @close-other-tabs="closeOtherTabs" @update-tab-name="handleTabRename" @run-query="runQuery" @run-ai-check="runAiAction" @open-publish="openPublishModal" @restore-history="restoreHistory" @delete-history="deleteHistory" @toggle-sidebar="sidebarCollapsed = !sidebarCollapsed" @run-empty-test="runEmptyParamTest"
             @cancel-query="cancelQuery" @run-explain="runExplain" @open-saved-queries="showSavedQueries = true" @ai-edit-sql="handleAiEdit"
+            @save-history-as-template="saveHistoryAsTemplate"
           />
         </div>
       </div>
@@ -1605,9 +1744,14 @@ onMounted(() => {
           :ai-content="currentTab.aiContent" :optimized-sql="currentTab.optimizedSql" :lab-mode="labMode" :has-perm="hasPerm"
           :is-ai-enabled="isAiEnabled" :sql="currentTab.sql" :recalled-context="currentTab.recalledContext"
           :preview-limit="previewLimit" :preview-offset="previewOffset" :total-count="totalCount"
+          :compare-snapshot="currentTab.compareSnapshot"
+          :last-ai-prompt="currentTab.lastAiPrompt"
+          :ai-feedback-rating="currentTab.aiFeedbackRating ?? null"
           class="flex-1"
           @clear-result="handleClearResult" @apply-ai-fix="applyAiFix" @open-analysis="openAiAnalysis" @export-excel="exportToExcel"
-          @export-async="exportAsync" @ai-fix-error="handleAiFixError" @page-change="handlePageChange"
+          @export-async="openExportPanel" @ai-fix-error="handleAiFixError" @page-change="handlePageChange"
+          @pin-baseline="pinBaseline"
+          @ai-feedback="submitAiFeedback"
         />
       </div>
     </div>
@@ -1615,7 +1759,31 @@ onMounted(() => {
     <AnalysisChat :is-open="showAnalysisChat" :initial-query="currentTab?.sql" :data="currentTab?.result?.rows" :columns="currentTab?.result?.columns" @close="showAnalysisChat = false" @save-session="saveAnalysisSession" />
 
     <LabSavedQueriesPanel v-if="showSavedQueries" :source-id="selectedSourceId" :lab-mode="labMode" :current-sql="currentTab?.sql || ''" :test-params="currentTab?.testParams || {}" @load="loadSavedQuery" @close="showSavedQueries = false" />
+    <LabExportPanel
+      v-if="showExportPanel"
+      :source-id="selectedSourceId"
+      :sql="currentTab?.sql || ''"
+      :test-params="currentTab?.testParams || {}"
+      @close="showExportPanel = false"
+    />
     <LabSqlDiff v-if="showSqlDiff" :original="sqlDiffData.original" :modified="sqlDiffData.modified" @apply="applySqlDiff" @close="showSqlDiff = false" />
+
+    <LabPublishSuccessModal
+      :open="showPublishSuccess"
+      :resource-key="publishedResourceKey"
+      :lab-sql="currentTab?.sql || ''"
+      @close="showPublishSuccess = false"
+      @test="showPublishSuccess = false; showApiTestModal = true"
+      @edit="router.push(`/dashboard/resources/${publishedResourceKey}`); showPublishSuccess = false"
+    />
+    <LabApiTestModal :open="showApiTestModal" :resource-key="publishedResourceKey" @close="showApiTestModal = false" />
+    <LabSqlDiff
+      v-if="showPublishSqlDiff && publishSqlDiff.original"
+      :original="publishSqlDiff.original"
+      :modified="publishSqlDiff.modified"
+      @close="showPublishSqlDiff = false"
+      @apply="showPublishSqlDiff = false"
+    />
 
     <div v-if="showRiskConfirm" class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
@@ -1645,12 +1813,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="currentTab?.sql && lastAiPrompt" class="fixed bottom-6 right-6 z-50 flex gap-2 bg-white shadow-lg rounded-full border px-3 py-2 text-xs">
-      <span class="text-gray-500 self-center">AI 生成满意吗？</span>
-      <button class="px-2 py-1 hover:bg-green-50 rounded" @click="submitAiFeedback(2)">👍</button>
-      <button class="px-2 py-1 hover:bg-red-50 rounded" @click="submitAiFeedback(1)">👎</button>
-    </div>
-    
+
     <!-- AI Meta Error Modal -->
     <div v-if="showAiErrorModal" class="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm" @click.self="showAiErrorModal = false">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all animate-in zoom-in duration-200">
@@ -1684,6 +1847,12 @@ onMounted(() => {
           <div class="space-y-1">
             <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">资源标识 (Key)</label>
             <input v-model="publishForm.resource_key" placeholder="例如: user.list" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-mono transition-all" />
+            <button
+              v-if="publishSqlDiff.original"
+              type="button"
+              class="mt-2 text-xs text-violet-600 font-bold hover:underline"
+              @click="showPublishSqlDiff = true"
+            >与已存在 API 的 SQL 存在差异，点击查看</button>
           </div>
           <div class="space-y-1">
             <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">接口名称</label>

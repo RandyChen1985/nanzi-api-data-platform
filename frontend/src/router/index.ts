@@ -63,6 +63,12 @@ const router = createRouter({
           meta: { menuCode: 'menu:lab', desktopOnly: true }
         },
         {
+          path: 'lab-ai-feedback',
+          name: 'LabAiFeedback',
+          component: () => import('../views/LabAiFeedback.vue'),
+          meta: { menuCode: 'menu:lab:feedback', desktopOnly: true }
+        },
+        {
           path: 'developer',
           name: 'DeveloperPortal',
           component: () => import('../views/developer/DeveloperPortal.vue'),

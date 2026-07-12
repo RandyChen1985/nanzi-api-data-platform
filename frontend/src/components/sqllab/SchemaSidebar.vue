@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { TableCellsIcon, ChevronRightIcon, ChevronDownIcon, CubeIcon, SparklesIcon, EyeIcon, CommandLineIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import ClearableInput from '../common/ClearableInput.vue'
+import LabJoinDiagram from './LabJoinDiagram.vue'
 
 type MergedColumn = {
   name: string
@@ -338,21 +339,8 @@ const handleDragStart = (event: DragEvent, name: string) => {
           </div>
         </div>
 
-        <div v-if="joinPaths?.length" class="px-3 py-2 border-b bg-indigo-50/40 space-y-1.5">
-          <div class="text-[9px] font-black text-indigo-700 uppercase tracking-widest">JOIN 路径推荐</div>
-          <button
-            v-for="(p, pi) in joinPaths.slice(0, 5)"
-            :key="pi"
-            type="button"
-            class="w-full text-left p-2 rounded-lg border border-indigo-100 bg-white hover:border-indigo-300 text-[10px]"
-            @click="emit('insert-join', p.snippet)"
-          >
-            <div class="font-bold text-gray-800">{{ p.source_table }} → {{ p.target_table }}</div>
-            <div class="text-gray-500 font-mono truncate">{{ p.condition }}</div>
-            <div class="text-indigo-500 mt-0.5">置信度 {{ Math.round(p.confidence * 100) }}% · 点击插入</div>
-          </button>
-        </div>
-        
+        <LabJoinDiagram v-if="joinPaths?.length" :join-paths="joinPaths || []" @insert="(s) => emit('insert-join', s)" />
+
         <div class="p-2 border-b space-y-2">
           <div class="flex gap-2">
             <ClearableInput
