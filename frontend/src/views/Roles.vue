@@ -16,11 +16,11 @@
     <!-- Filters -->
     <div class="bg-white shadow-sm border border-gray-200 rounded-xl p-4">
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <input
+        <ClearableInput
           v-model="roleSearch"
-          type="text"
           placeholder="搜索角色名称或编码..."
-          class="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 md:col-span-1"
+          wrapper-class="md:col-span-1"
+          input-class="px-4 py-2"
         />
         <select
           v-model="sortBy"
@@ -253,28 +253,6 @@
                       更多
                       <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === role.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                     </button>
-                    <div
-                      v-if="openMore === role.id"
-                      class="absolute right-0 top-full mt-1 w-32 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
-                    >
-                      <button
-                        type="button"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 transition-colors"
-                        @click="openMemberDialog(role); openMore = null"
-                      >
-                        <UserPlusIcon class="w-3.5 h-3.5 shrink-0" />
-                        成员管理
-                      </button>
-                      <div class="h-px bg-gray-100 mx-2 my-1" />
-                      <button
-                        type="button"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                        @click="confirmDelete(role); openMore = null"
-                      >
-                        <TrashIcon class="w-3.5 h-3.5 shrink-0" />
-                        删除
-                      </button>
-                    </div>
                   </div>
                 </div>
               </td>
@@ -378,11 +356,10 @@
 
           <div v-show="activeTab === 'permissions'" class="flex flex-col min-h-[400px]">
             <div class="mb-4">
-              <input
+              <ClearableInput
                 v-model="permissionSearch"
-                type="text"
                 placeholder="搜索权限项（名称、编码、分组）..."
-                class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                input-class="px-4 py-2.5 text-sm"
               />
             </div>
 
@@ -550,14 +527,13 @@
                     >
                       所有表 (ALL)
                     </button>
-                    <div class="relative w-full sm:w-48">
-                      <input
-                        :value="tableSearchByDS[ds.source_name] || ''"
-                        @input="setTableSearch(ds.source_name, ($event.target as HTMLInputElement).value)"
+                      <ClearableInput
+                        :model-value="tableSearchByDS[ds.source_name] || ''"
                         placeholder="搜索表名..."
-                        class="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-orange-500"
+                        input-class="px-2 py-1.5 text-xs"
+                        wrapper-class="w-full sm:w-48"
+                        @update:model-value="setTableSearch(ds.source_name, $event)"
                       />
-                    </div>
                   </div>
 
                   <div v-if="loadingTablesByDS[ds.source_name]" class="py-8 text-center">
@@ -678,10 +654,10 @@
               <div class="flex-1 min-w-0 min-h-0 flex flex-col border border-gray-200 rounded-2xl overflow-hidden">
                 <div class="px-4 py-2 bg-gray-50 border-b space-y-2 shrink-0">
                   <span class="text-xs font-bold text-gray-600">备选用户 ({{ filteredAvailableUsers.length }})</span>
-                  <input
+                  <ClearableInput
                     v-model="userSearchAvailable"
                     placeholder="搜索用户名..."
-                    class="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-indigo-500 outline-none"
+                    input-class="px-2 py-1.5 text-xs"
                   />
                 </div>
                 <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-1">
@@ -737,10 +713,10 @@
               <div class="flex-1 min-w-0 min-h-0 flex flex-col border border-indigo-200 rounded-2xl overflow-hidden bg-indigo-50/10">
                 <div class="px-4 py-2 bg-indigo-50 border-b border-indigo-100 space-y-2 shrink-0">
                   <span class="text-xs font-bold text-indigo-600">已分配成员 ({{ filteredRoleMembers.length }})</span>
-                  <input
+                  <ClearableInput
                     v-model="userSearchSelected"
                     placeholder="搜索已分配用户..."
-                    class="w-full text-xs border border-indigo-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
+                    input-class="px-2 py-1.5 text-xs bg-white"
                   />
                 </div>
                 <div class="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-1">
@@ -800,6 +776,34 @@
       @confirm="confirmDiscardEdit"
       @cancel="showDiscardConfirm = false"
     />
+
+    <!-- 更多操作菜单（Teleport 避免表格 overflow 裁切） -->
+    <Teleport to="body">
+      <div
+        v-if="openMoreRole && moreMenuStyle"
+        class="fixed z-[9998] w-32 bg-white border border-gray-100 rounded-lg shadow-xl py-1 overflow-hidden"
+        :style="moreMenuStyle"
+        @click.stop
+      >
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 transition-colors"
+          @click="openMemberDialog(openMoreRole); closeMore()"
+        >
+          <UserPlusIcon class="w-3.5 h-3.5 shrink-0" />
+          成员管理
+        </button>
+        <div class="h-px bg-gray-100 mx-2 my-1" />
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+          @click="confirmDelete(openMoreRole); closeMore()"
+        >
+          <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+          删除
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -807,12 +811,14 @@
 import { ref, onMounted, onUnmounted, computed, watch, reactive } from 'vue'
 import axios from '../utils/axios'
 import { useToast } from '../composables/useToast'
+import { useActionMoreMenu } from '../composables/useActionMoreMenu'
 import {
   PERMISSION_MENU_TREE,
   getMenuChildIds,
   type PermissionMenuNode,
 } from '@/constants/permissionMenuTree'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 import {
   PlusIcon,
   UserGroupIcon,
@@ -833,16 +839,21 @@ const ROLE_CODE_PATTERN = /^[a-z][a-z0-9_]*$/
 const ROLES_VIEW_MODE_KEY = 'roles_view_mode'
 
 const roles = ref<any[]>([])
+const {
+  openMore,
+  openMoreItem: openMoreRole,
+  moreMenuStyle,
+  toggleMore,
+  closeMore,
+  bindGlobalClose,
+  unbindGlobalClose,
+} = useActionMoreMenu(roles, { menuWidth: 128, estHeight: 120 })
 const loading = ref(false)
 const roleSearch = ref('')
 const sortBy = ref<'created_desc' | 'created_asc' | 'name_asc' | 'members_desc'>('created_desc')
 const viewMode = ref<'card' | 'list'>(
   (localStorage.getItem(ROLES_VIEW_MODE_KEY) as 'card' | 'list') || 'card',
 )
-
-const openMore = ref<number | null>(null)
-const toggleMore = (id: number, e: MouseEvent) => { e.stopPropagation(); openMore.value = openMore.value === id ? null : id }
-const closeMore = () => { openMore.value = null }
 
 const showEditModal = ref(false)
 const showDiscardConfirm = ref(false)
@@ -1456,11 +1467,11 @@ onMounted(() => {
   fetchRoles()
   fetchAvailableResources()
   fetchAllDataSources()
-  document.addEventListener('click', closeMore)
+  bindGlobalClose()
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', closeMore)
+  unbindGlobalClose()
 })
 </script>
 

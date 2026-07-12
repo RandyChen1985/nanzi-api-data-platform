@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from "vue";
 import axios from "axios";
 import { useToast } from "../composables/useToast";
+import ClearableInput from "../components/common/ClearableInput.vue";
 
 const { showToast: addToast } = useToast();
 
@@ -708,15 +709,14 @@ onMounted(() => {
           <!-- Endpoint -->
           <div class="relative lg:col-span-2">
             <label class="block text-xs font-semibold text-gray-500 mb-1">接口路径</label>
-            <input
+            <ClearableInput
               v-model="filters.endpoint"
-              type="text"
               placeholder="搜索路径"
               autocomplete="off"
+              input-class="px-2 py-1.5 text-xs"
               @input="onEndpointInput"
               @focus="onEndpointFocus"
               @blur="onEndpointBlur"
-              class="w-full px-2 py-1.5 border border-gray-300 rounded shadow-sm text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
             <!-- Autocomplete Dropdown -->
             <ul
@@ -773,22 +773,20 @@ onMounted(() => {
           <!-- User Name -->
           <div v-if="hasPerm('element:audit:manage')">
             <label class="block text-xs font-semibold text-gray-500 mb-1">用户名</label>
-            <input
+            <ClearableInput
               v-model="filters.user_name"
-              type="text"
               placeholder="搜索用户"
-              class="w-full px-2 py-1.5 border border-gray-300 rounded shadow-sm text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              input-class="px-2 py-1.5 text-xs"
             />
           </div>
 
           <!-- Client IP -->
           <div>
             <label class="block text-xs font-semibold text-gray-500 mb-1">客户端 IP</label>
-            <input
+            <ClearableInput
               v-model="filters.client_ip"
-              type="text"
               placeholder="搜索 IP"
-              class="w-full px-2 py-1.5 border border-gray-300 rounded shadow-sm text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              input-class="px-2 py-1.5 text-xs"
             />
           </div>
 

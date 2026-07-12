@@ -1,14 +1,12 @@
 <template>
   <div>
     <h2 class="text-xl font-semibold mb-6 text-gray-800">业务错误码字典</h2>
-    <div class="mb-4 relative">
-      <input 
-        v-model="search" 
-        type="text" 
-        placeholder="搜索错误码或描述..." 
-        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-      />
-    </div>
+    <ClearableInput
+      v-model="search"
+      wrapper-class="mb-4"
+      placeholder="搜索错误码或描述..."
+      input-class="px-4 py-2"
+    />
     
     <div class="overflow-x-auto border rounded-lg">
       <table class="min-w-full divide-y divide-gray-200">
@@ -34,6 +32,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 
 interface ErrorCode {
   code: number

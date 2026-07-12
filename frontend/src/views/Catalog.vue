@@ -7,6 +7,7 @@ import type { CatalogPlaygroundProduct } from '@/utils/catalog'
 import { useToast } from '@/composables/useToast'
 import CatalogProductRow from '@/components/catalog/CatalogProductRow.vue'
 import CatalogFeaturedCarousel from '@/components/catalog/CatalogFeaturedCarousel.vue'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 
 const { showToast } = useToast()
 
@@ -280,18 +281,14 @@ onMounted(async () => {
     <!-- Filters -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 space-y-4">
       <div class="flex flex-col md:flex-row gap-3">
-        <div class="relative flex-1">
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="搜索产品名称、关键词、业务域..."
-            class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            @keyup.enter="resetPageAndFetch"
-          />
-          <svg class="absolute left-3 top-2.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
+        <ClearableInput
+          v-model="searchQuery"
+          show-search-icon
+          wrapper-class="flex-1"
+          input-class="py-2.5 text-sm"
+          placeholder="搜索产品名称、关键词、业务域..."
+          @keyup.enter="resetPageAndFetch"
+        />
         <select v-model="sortBy" class="border border-gray-200 rounded-lg px-3 py-2.5 text-sm" @change="resetPageAndFetch">
           <option v-if="viewTab === 'mine'" value="pending">按待审批</option>
           <option value="calls">按调用量</option>

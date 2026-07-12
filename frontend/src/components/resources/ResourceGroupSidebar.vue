@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { FolderIcon, Cog6ToothIcon, ChevronDoubleLeftIcon, ChevronDoubleRightIcon } from '@heroicons/vue/24/outline'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 import type { ResourceGroupTab } from '@/types/resource'
 
 defineProps<{
@@ -24,18 +25,14 @@ const emit = defineEmits<{
     <div class="p-3 border-b border-gray-200 flex items-center justify-between h-14 bg-white">
       <div v-if="!collapsed" class="w-full">
         <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">资源分组</h2>
-        <div class="relative">
-          <input
-            :value="searchGroupQuery"
-            type="text"
-            placeholder="搜索分组..."
-            class="w-full pl-7 pr-2 py-1 bg-gray-100 border-none rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none"
-            @input="emit('update:searchGroupQuery', ($event.target as HTMLInputElement).value)"
-          />
-          <svg class="w-3 h-3 text-gray-400 absolute left-2 top-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
+        <ClearableInput
+          :model-value="searchGroupQuery"
+          show-search-icon
+          wrapper-class="border-0 bg-gray-100 rounded"
+          input-class="py-1 text-xs"
+          placeholder="搜索分组..."
+          @update:model-value="emit('update:searchGroupQuery', $event)"
+        />
       </div>
       <button
         v-if="collapsed"

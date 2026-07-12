@@ -4,6 +4,7 @@ import { metadataV2Api, SEARCH_TYPES, type SearchType } from '../api/metadata_v2
 import axios from '../utils/axios'
 import { useToast } from '../composables/useToast'
 import VectorProcessDiagram from '../components/metadata/VectorProcessDiagram.vue'
+import ClearableInput from '../components/common/ClearableInput.vue'
 
 import { 
   CircleStackIcon, ChevronRightIcon, BeakerIcon, 
@@ -437,15 +438,15 @@ const handleSearch = async () => {
       <!-- Right Content (8 cols) -->
       <div class="lg:col-span-8 space-y-6">
         <!-- Search Input Card -->
-        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-2 flex items-center gap-2 transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500">
-          <div class="flex-1 relative">
-            <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input 
-              v-model="query" @keyup.enter="handleSearch"
-              class="w-full py-3 pl-10 pr-4 bg-transparent text-sm font-medium text-gray-900 outline-none placeholder:text-gray-400"
-              placeholder="请输入您的业务问题、表名或指标关键字..."
-            />
-          </div>
+        <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-2 flex items-center gap-2">
+          <ClearableInput
+            v-model="query"
+            show-search-icon
+            wrapper-class="flex-1 border-0 shadow-none focus-within:ring-0"
+            input-class="py-3 text-sm font-medium placeholder:text-gray-400"
+            placeholder="请输入您的业务问题、表名或指标关键字..."
+            @keyup.enter="handleSearch"
+          />
           <button 
             @click="handleSearch" :disabled="searching || !query"
             class="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-sm transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 text-sm"

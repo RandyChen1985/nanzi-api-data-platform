@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { TableCellsIcon, ChevronRightIcon, ChevronDownIcon, CubeIcon, SparklesIcon, EyeIcon, CommandLineIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import ClearableInput from '../common/ClearableInput.vue'
 
 type MergedColumn = {
   name: string
@@ -316,10 +317,11 @@ const handleDragStart = (event: DragEvent, name: string) => {
         </div>
         
         <div class="p-2 border-b space-y-2">
-          <input
+          <ClearableInput
             v-model="search"
+            wrapper-class="border-0 bg-gray-100 rounded"
+            input-class="px-2 py-1 text-xs"
             :placeholder="advancedMode ? '搜索表名/术语/描述...' : '搜索资产...'"
-            class="w-full px-2 py-1 text-xs border-none bg-gray-100 rounded focus:ring-1 focus:ring-blue-500"
           />
 
           <!-- 高级模式：紧凑标签 + 弹出面板（避免内联展开占满侧边栏） -->
@@ -382,12 +384,13 @@ const handleDragStart = (event: DragEvent, name: string) => {
               v-if="showTagPicker"
               class="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-xl p-2 flex flex-col"
             >
-              <input
-                v-model="tagSearch"
-                placeholder="搜索标签..."
-                class="w-full px-2 py-1 text-[10px] border border-gray-200 rounded focus:ring-1 focus:ring-indigo-500 outline-none"
-                @click.stop
-              />
+              <div @click.stop>
+                <ClearableInput
+                  v-model="tagSearch"
+                  input-class="px-2 py-1 text-[10px]"
+                  placeholder="搜索标签..."
+                />
+              </div>
               <div class="mt-2 max-h-40 overflow-y-auto custom-scrollbar flex flex-wrap gap-1">
                 <button
                   v-for="tag in filteredPickerTags"

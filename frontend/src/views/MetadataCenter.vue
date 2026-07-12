@@ -5,7 +5,7 @@ import { metadataV2Api, type Dataset } from '../api/metadata_v2'
 import axios from '../utils/axios'
 import { 
   CircleStackIcon, PlusIcon, RocketLaunchIcon, 
-  TrashIcon, MagnifyingGlassIcon, Squares2X2Icon, ListBulletIcon,
+  TrashIcon, Squares2X2Icon, ListBulletIcon,
   CommandLineIcon, BeakerIcon, XMarkIcon, ExclamationTriangleIcon,
   CloudArrowUpIcon, InformationCircleIcon, SparklesIcon,
   UserIcon, ClockIcon, ArrowPathIcon
@@ -14,6 +14,7 @@ import SmartImportWizard from '../components/metadata/SmartImportWizard.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useToast } from '../composables/useToast'
 import Tooltip from '../components/common/Tooltip.vue'
+import ClearableInput from '../components/common/ClearableInput.vue'
 
 const VECTOR_STATUS: Record<number, { label: string; class: string }> = {
   0: { label: '未同步', class: 'bg-gray-100 text-gray-600 ring-gray-200' },
@@ -557,16 +558,13 @@ onUnmounted(stopPolling)
 
     <!-- Toolbar -->
     <div class="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-       <div class="relative flex-1 min-w-[200px] max-w-xl">
-          <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
-             <MagnifyingGlassIcon class="h-4 w-4" />
-          </span>
-          <input 
-            v-model="searchQuery" 
-            class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none sm:text-sm bg-gray-50" 
-            placeholder="搜索名称、编码、描述、数据源、标签..."
-          >
-       </div>
+       <ClearableInput
+          v-model="searchQuery"
+          show-search-icon
+          wrapper-class="flex-1 min-w-[200px] max-w-xl"
+          input-class="py-2 sm:text-sm bg-gray-50"
+          placeholder="搜索名称、编码、描述、数据源、标签..."
+       />
 
        <div class="flex flex-wrap items-center gap-2">
           <select v-model="statusFilter" class="text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white">

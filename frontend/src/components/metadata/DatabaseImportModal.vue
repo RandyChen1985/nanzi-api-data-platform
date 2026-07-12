@@ -6,6 +6,7 @@ import {
   ChevronRightIcon, ArrowPathIcon, CheckIcon,
   MagnifyingGlassIcon
 } from '@heroicons/vue/24/outline'
+import ClearableInput from '../common/ClearableInput.vue'
 
 const props = defineProps<{ 
   show: boolean, 
@@ -310,21 +311,13 @@ onMounted(fetchDataSources)
              </button>
           </div>
 
-          <!-- Search Input -->
-          <div v-if="tables.length > 0" class="relative">
-             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <MagnifyingGlassIcon class="h-4 w-4 text-gray-400" />
-             </div>
-             <input 
-               v-model="tableSearchQuery" 
-               type="text" 
-               placeholder="快速过滤表名..." 
-               class="block w-full pl-10 pr-3 py-2 bg-white border border-gray-200 rounded-xl text-xs placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
-             />
-             <button v-if="tableSearchQuery" @click="tableSearchQuery = ''" class="absolute inset-y-0 right-0 pr-3 flex items-center">
-                <XMarkIcon class="h-4 w-4 text-gray-300 hover:text-gray-500" />
-             </button>
-          </div>
+          <ClearableInput
+            v-if="tables.length > 0"
+            v-model="tableSearchQuery"
+            show-search-icon
+            input-class="py-2 text-xs shadow-sm"
+            placeholder="快速过滤表名..."
+          />
 
           <!-- AI 标签过滤排（可折叠） -->
           <div v-if="activeTab === 'profile' && availableTags.length > 0" class="px-1 shrink-0">

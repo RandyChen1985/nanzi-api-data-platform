@@ -9,6 +9,7 @@ import ResourceRowActions from '@/components/resources/ResourceRowActions.vue'
 import ResourceLogDrawer from '@/components/resources/ResourceLogDrawer.vue'
 import ConfirmDeleteModal from '@/components/resources/ConfirmDeleteModal.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 import type { Resource, AccessLog, ResourceSortField, ResourceGroupTab } from '@/types/resource'
 import { isSystemResourceGroup, sortResourceGroups, isLockedSystemResource, displayResourceMode } from '@/types/resource'
 import { CircleStackIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
@@ -1114,18 +1115,14 @@ onMounted(() => {
         <!-- Filters -->
         <div class="bg-white border border-gray-200 rounded-lg p-4">
           <div class="flex flex-wrap items-center gap-3">
-            <div class="flex-1 min-w-[200px] max-w-md relative">
-              <input
-                v-model="searchQuery"
-                type="search"
-                placeholder="搜索 Key、名称、数据源、备注..."
-                class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                @input="page = 1"
-              />
-              <svg class="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
+            <ClearableInput
+              v-model="searchQuery"
+              show-search-icon
+              wrapper-class="flex-1 min-w-[200px] max-w-md"
+              input-class="py-2 text-sm"
+              placeholder="搜索 Key、名称、数据源、备注..."
+              @input="page = 1"
+            />
             <select v-model="statusFilter" class="border border-gray-300 rounded-lg px-3 py-2 text-sm" @change="page = 1">
               <option value="ALL">全部状态</option>
               <option value="1">已启用</option>

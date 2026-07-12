@@ -83,17 +83,12 @@
           </div>
 
           <div v-if="activeTab === 'resource'" class="mt-3 sm:mt-4 shrink-0">
-            <div class="relative rounded-md shadow-sm">
-              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg class="h-4 w-4 sm:h-5 sm:w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-              </div>
-              <input
-                v-model="searchQuery"
-                type="text"
-                class="focus:ring-blue-500 focus:border-blue-500 block w-full pl-9 sm:pl-10 text-sm border-gray-300 rounded-lg py-2"
-                placeholder="搜索资源名称、Key 或分组..."
-              />
-            </div>
+            <ClearableInput
+              v-model="searchQuery"
+              show-search-icon
+              input-class="py-2 text-sm"
+              placeholder="搜索资源名称、Key 或分组..."
+            />
           </div>
 
           <div class="mt-2 flex-1 min-h-0 flex flex-col">
@@ -328,6 +323,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ShieldCheckIcon, BoltIcon } from '@heroicons/vue/24/outline'
 import CatalogChangeNotificationsPanel from '@/components/catalog/CatalogChangeNotificationsPanel.vue'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 import { renderMarkdown } from '@/utils/markdown'
 
 const props = withDefaults(

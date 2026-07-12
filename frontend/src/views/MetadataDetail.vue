@@ -7,7 +7,7 @@ import {
   DocumentDuplicateIcon, CommandLineIcon,
   CircleStackIcon, UserIcon,
   PlusIcon, PencilSquareIcon, TrashIcon, XMarkIcon, ClockIcon,
-  ShareIcon, MagnifyingGlassIcon, HeartIcon, ExclamationCircleIcon, CheckCircleIcon,
+  ShareIcon, HeartIcon, ExclamationCircleIcon, CheckCircleIcon,
   ShieldCheckIcon, ArrowPathIcon, InformationCircleIcon
 } from '@heroicons/vue/24/outline'
 import { useToast } from '../composables/useToast'
@@ -18,6 +18,7 @@ import RelationshipList from '../components/metadata/RelationshipList.vue'
 import SchemaGraph from '../components/metadata/SchemaGraph.vue'
 import ApiUsageList from '../components/metadata/ApiUsageList.vue'
 import SmartImportWizard from '../components/metadata/SmartImportWizard.vue'
+import ClearableInput from '../components/common/ClearableInput.vue'
 
 const route = useRoute()
 const { showToast } = useToast()
@@ -413,10 +414,13 @@ onMounted(() => {
         <!-- Tables Tab -->
         <div v-show="activeTab === 'tables'" class="space-y-6">
           <div class="flex justify-between items-center px-1">
-            <div class="relative w-80">
-              <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input v-model="searchQuery" class="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm font-medium" placeholder="搜索物理表名或术语..." />
-            </div>
+            <ClearableInput
+              v-model="searchQuery"
+              show-search-icon
+              wrapper-class="w-80"
+              input-class="py-2 text-sm font-medium bg-gray-50"
+              placeholder="搜索物理表名或术语..."
+            />
             <button v-if="hasPerm('element:metadata:manage')" @click="openCreateModal" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-all shadow-md flex items-center gap-2 text-sm font-bold active:scale-95">
                <PlusIcon class="w-5 h-5" /> 新建数据表
             </button>

@@ -17,12 +17,12 @@
     <!-- Filters -->
     <div class="bg-white shadow rounded-lg p-4">
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <input 
-          v-model="searchQuery" 
+        <ClearableInput
+          v-model="searchQuery"
+          placeholder="搜索用户名..."
+          wrapper-class="md:col-span-1"
+          input-class="px-4 py-2"
           @input="debouncedSearch"
-          type="text" 
-          placeholder="搜索用户名..." 
-          class="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select 
           v-model="roleFilter" 
@@ -123,37 +123,6 @@
                       更多
                       <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === user.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                     </button>
-                    <div
-                      v-if="openMore === user.id"
-                      class="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
-                    >
-                      <button
-                        type="button"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-                        @click="viewApiKey(user); openMore = null"
-                      >
-                        <KeyIcon class="w-3.5 h-3.5 shrink-0" />
-                        查看 API Key
-                      </button>
-                      <button
-                        type="button"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition-colors"
-                        @click="regenerateApiKey(user); openMore = null"
-                      >
-                        <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
-                        重置 API Key
-                      </button>
-                      <div v-if="user.user_name !== 'admin'" class="h-px bg-gray-100 mx-2 my-1" />
-                      <button
-                        v-if="user.user_name !== 'admin'"
-                        type="button"
-                        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                        @click="confirmDelete(user); openMore = null"
-                      >
-                        <TrashIcon class="w-3.5 h-3.5 shrink-0" />
-                        删除用户
-                      </button>
-                    </div>
                   </div>
                 </div>
               </td>
@@ -423,7 +392,11 @@
                       <span v-if="isInherited(`ds:${ds.source_name}:table:*`, 'data_table')" class="text-[10px] bg-orange-100 text-orange-600 px-2 py-1 rounded font-bold">已从角色继承 ALL</span>
                     </div>
                     <div class="relative w-48">
-                      <input v-model="tableSearch" placeholder="搜索表名..." class="w-full text-[10px] border border-gray-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-orange-500" />
+                      <ClearableInput
+                        v-model="tableSearch"
+                        placeholder="搜索表名..."
+                        input-class="px-2 py-1 text-[10px]"
+                      />
                     </div>
                   </div>
 
@@ -596,6 +569,43 @@
       </div>
     </div>
   </div>
+
+  <!-- 更多操作菜单（Teleport 避免表格 overflow 裁切） -->
+  <Teleport to="body">
+    <div
+      v-if="openMoreUser && moreMenuStyle"
+      class="fixed z-[9998] w-36 bg-white border border-gray-100 rounded-lg shadow-xl py-1 overflow-hidden"
+      :style="moreMenuStyle"
+      @click.stop
+    >
+      <button
+        type="button"
+        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+        @click="viewApiKey(openMoreUser); closeMore()"
+      >
+        <KeyIcon class="w-3.5 h-3.5 shrink-0" />
+        查看 API Key
+      </button>
+      <button
+        type="button"
+        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition-colors"
+        @click="regenerateApiKey(openMoreUser); closeMore()"
+      >
+        <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
+        重置 API Key
+      </button>
+      <div v-if="openMoreUser.user_name !== 'admin'" class="h-px bg-gray-100 mx-2 my-1" />
+      <button
+        v-if="openMoreUser.user_name !== 'admin'"
+        type="button"
+        class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+        @click="confirmDelete(openMoreUser); closeMore()"
+      >
+        <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+        删除用户
+      </button>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -603,7 +613,9 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { useToast } from '../composables/useToast'
+import { useActionMoreMenu } from '../composables/useActionMoreMenu'
 import Switch from '../components/Switch.vue'
+import ClearableInput from '../components/common/ClearableInput.vue'
 import { 
   KeyIcon, 
   ArrowPathIcon, 
@@ -617,10 +629,6 @@ const route = useRoute()
 
 
 const activePermissionSubTab = ref<'resource' | 'ui' | 'data'>('resource')
-
-const openMore = ref<number | null>(null)
-const toggleMore = (id: number, e: MouseEvent) => { e.stopPropagation(); openMore.value = openMore.value === id ? null : id }
-const closeMore = () => { openMore.value = null }
 
 // Constants
 const availableResources = ref<any[]>([])
@@ -696,6 +704,15 @@ const fetchAvailableUiPermissions = async () => {
 
 // State
 const users = ref<any[]>([])
+const {
+  openMore,
+  openMoreItem: openMoreUser,
+  moreMenuStyle,
+  toggleMore,
+  closeMore,
+  bindGlobalClose,
+  unbindGlobalClose,
+} = useActionMoreMenu(users, { estHeight: 160 })
 const loading = ref(false)
 const total = ref(0)
 const page = ref(1)
@@ -1252,11 +1269,11 @@ onMounted(async () => {
       /* ignore */
     }
   }
-  document.addEventListener('click', closeMore)
+  bindGlobalClose()
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', closeMore)
+  unbindGlobalClose()
 })
 
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { ChevronUpDownIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+import { ChevronUpDownIcon } from '@heroicons/vue/24/outline'
+import ClearableInput from './ClearableInput.vue'
 
 export interface SearchSelectOption {
   value: string | number
@@ -33,7 +34,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string | number | null] 
 
 const open = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
-const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchInputRef = ref<InstanceType<typeof ClearableInput> | null>(null)
 const searchQuery = ref('')
 
 const filteredOptions = computed(() => {
@@ -113,15 +114,13 @@ const showEmptyOption = computed(() => {
       class="absolute z-30 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden"
     >
       <div class="sticky top-0 z-10 bg-white border-b border-gray-100 px-2 py-2">
-        <div class="relative">
-          <MagnifyingGlassIcon class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          <input
+        <div @click.stop>
+          <ClearableInput
             ref="searchInputRef"
             v-model="searchQuery"
-            type="text"
+            show-search-icon
+            input-class="py-1.5 text-sm"
             :placeholder="searchPlaceholder"
-            class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
-            @click.stop
             @keydown.esc.prevent="open = false"
           />
         </div>

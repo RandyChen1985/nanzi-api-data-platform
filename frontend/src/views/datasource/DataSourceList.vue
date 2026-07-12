@@ -5,13 +5,13 @@ import axios from '@/utils/axios'
 import Toast from '@/components/Toast.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import Switch from '@/components/Switch.vue'
+import ClearableInput from '@/components/common/ClearableInput.vue'
 import {
   PencilSquareIcon,
   TrashIcon,
   PlayIcon,
   CircleStackIcon,
   Bars3Icon,
-  MagnifyingGlassIcon,
   PlusIcon,
   ArrowPathIcon,
   DocumentDuplicateIcon,
@@ -124,7 +124,34 @@ const confirmDialog = ref({
 })
 
 const openMore = ref<number | null>(null)
-const toggleMore = (id: number, e: MouseEvent) => { e.stopPropagation(); openMore.value = openMore.value === id ? null : id }
+const moreMenuPos = ref<{ top: number; left: number; minWidth: number; openUp: boolean } | null>(null)
+const MORE_MENU_WIDTH = 144
+const MORE_MENU_EST_HEIGHT = 240
+
+const openMoreItem = computed(() => {
+  if (openMore.value === null) return null
+  return datasources.value.find((ds) => ds.id === openMore.value) ?? null
+})
+
+const toggleMore = (id: number, e: MouseEvent) => {
+  e.stopPropagation()
+  if (openMore.value === id) {
+    openMore.value = null
+    moreMenuPos.value = null
+    return
+  }
+  const btn = e.currentTarget as HTMLElement
+  const rect = btn.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - rect.bottom
+  const openUp = spaceBelow < MORE_MENU_EST_HEIGHT && rect.top > MORE_MENU_EST_HEIGHT
+  moreMenuPos.value = {
+    top: openUp ? rect.top - 4 : rect.bottom + 4,
+    left: rect.right,
+    minWidth: Math.max(rect.width, MORE_MENU_WIDTH),
+    openUp,
+  }
+  openMore.value = id
+}
 
 const toast = ref({ show: false, message: '', type: 'info' as 'success' | 'error' | 'warning' | 'info', key: 0 })
 const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
@@ -852,17 +879,24 @@ const toggleProfileIgnore = async (profile: any) => {
   }
 }
 
-const closeMore = () => { openMore.value = null }
+const closeMore = () => {
+  openMore.value = null
+  moreMenuPos.value = null
+}
 
 onMounted(() => {
   checkRole()
   fetchDatasources()
   document.addEventListener('click', closeMore)
+  window.addEventListener('scroll', closeMore, true)
+  window.addEventListener('resize', closeMore)
 })
 
 onUnmounted(() => {
   Object.values(pollingIntervals).forEach((interval) => clearInterval(interval))
   document.removeEventListener('click', closeMore)
+  window.removeEventListener('scroll', closeMore, true)
+  window.removeEventListener('resize', closeMore)
 })
 </script>
 
@@ -914,15 +948,13 @@ onUnmounted(() => {
 
     <!-- Toolbar -->
     <div v-if="!loading && datasources.length > 0" class="bg-white border border-gray-200 rounded-lg p-3 flex flex-wrap gap-3 items-center">
-      <div class="relative flex-1 min-w-[200px]">
-        <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="搜索名称、主机、库名、描述..."
-          class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      </div>
+      <ClearableInput
+        v-model="searchQuery"
+        show-search-icon
+        wrapper-class="flex-1 min-w-[200px]"
+        input-class="py-2 text-sm"
+        placeholder="搜索名称、主机、库名、描述..."
+      />
       <select
         v-model="typeFilter"
         class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -1100,74 +1132,6 @@ onUnmounted(() => {
                           更多
                           <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === item.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                         </button>
-                        <div
-                          v-if="openMore === item.id"
-                          class="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
-                        >
-                          <!-- 摸排进行中：停止 -->
-                          <button
-                            v-if="profilingTasks[item.id]?.status === 1"
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition-colors"
-                            @click="requestCancelProfiling(item); openMore = null"
-                          >
-                            <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
-                            停止摸排
-                          </button>
-                          <!-- 摸排 -->
-                          <button
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
-                            :class="profilingTasks[item.id]?.status === 1 || item.status !== 1 ? 'text-gray-300 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'"
-                            :disabled="profilingTasks[item.id]?.status === 1 || item.status !== 1"
-                            @click="requestProfiling(item); openMore = null"
-                          >
-                            <CircleStackIcon class="w-3.5 h-3.5 shrink-0" :class="profilingTasks[item.id]?.status === 1 ? 'animate-spin' : ''" />
-                            {{ profilingTasks[item.id]?.status === 1 ? '摸排中...' : '启动摸排' }}
-                          </button>
-                          <!-- 全量重跑（已有摸排记录且非进行中时显示） -->
-                          <button
-                            v-if="hasProfilingHistory(item)"
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                            @click="requestForceProfiling(item); openMore = null"
-                          >
-                            <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
-                            全量重跑
-                          </button>
-                          <!-- 画像（已有成功画像即可查看，摸排进行中也可） -->
-                          <button
-                            v-if="hasViewableProfiles(item)"
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
-                            @click="openTableProfiles(item); openMore = null"
-                          >
-                            <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
-                            查看画像
-                            <span
-                              v-if="profilingTasks[item.id]?.status === 1"
-                              class="ml-auto text-[9px] text-purple-400 font-mono"
-                            >{{ profilingTasks[item.id]?.completed_profiles }}</span>
-                          </button>
-                          <div class="h-px bg-gray-100 mx-2 my-1" />
-                          <button
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-                            @click="openCopyDialog(item); openMore = null"
-                          >
-                            <DocumentDuplicateIcon class="w-3.5 h-3.5 shrink-0" />
-                            复制新建
-                          </button>
-                          <div class="h-px bg-gray-100 mx-2 my-1" />
-                          <button
-                            type="button"
-                            class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                            @click="confirmDelete(item); openMore = null"
-                          >
-                            <TrashIcon class="w-3.5 h-3.5 shrink-0" />
-                            删除
-                          </button>
-                        </div>
                       </div>
                       <span v-if="!canEdit" class="text-xs text-gray-400">只读</span>
                     </div>
@@ -1257,74 +1221,6 @@ onUnmounted(() => {
                         更多
                         <svg class="w-3 h-3 transition-transform duration-150" :class="openMore === item.id ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                       </button>
-                      <div
-                        v-if="openMore === item.id"
-                        class="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-100 rounded-lg shadow-xl z-50 py-1 overflow-hidden"
-                      >
-                        <!-- 摸排进行中：停止 -->
-                        <button
-                          v-if="profilingTasks[item.id]?.status === 1"
-                          type="button"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition-colors"
-                          @click="requestCancelProfiling(item); openMore = null"
-                        >
-                          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
-                          停止摸排
-                        </button>
-                        <!-- 摸排 -->
-                        <button
-                          type="button"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
-                          :class="profilingTasks[item.id]?.status === 1 || item.status !== 1 ? 'text-gray-300 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'"
-                          :disabled="profilingTasks[item.id]?.status === 1 || item.status !== 1"
-                          @click="requestProfiling(item); openMore = null"
-                        >
-                          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" :class="profilingTasks[item.id]?.status === 1 ? 'animate-spin' : ''" />
-                          {{ profilingTasks[item.id]?.status === 1 ? '摸排中...' : '启动摸排' }}
-                        </button>
-                        <!-- 全量重跑（已有摸排记录且非进行中时显示） -->
-                        <button
-                          v-if="hasProfilingHistory(item)"
-                          type="button"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                          @click="requestForceProfiling(item); openMore = null"
-                        >
-                          <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
-                          全量重跑
-                        </button>
-                        <!-- 画像（已有成功画像即可查看，摸排进行中也可） -->
-                        <button
-                          v-if="hasViewableProfiles(item)"
-                          type="button"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
-                          @click="openTableProfiles(item); openMore = null"
-                        >
-                          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
-                          查看画像
-                          <span
-                            v-if="profilingTasks[item.id]?.status === 1"
-                            class="ml-auto text-[9px] text-purple-400 font-mono"
-                          >{{ profilingTasks[item.id]?.completed_profiles }}</span>
-                        </button>
-                        <div class="h-px bg-gray-100 mx-2 my-1" />
-                        <button
-                          type="button"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-                          @click="openCopyDialog(item); openMore = null"
-                        >
-                          <DocumentDuplicateIcon class="w-3.5 h-3.5 shrink-0" />
-                          复制新建
-                        </button>
-                        <div class="h-px bg-gray-100 mx-2 my-1" />
-                        <button
-                          type="button"
-                          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
-                          @click="confirmDelete(item); openMore = null"
-                        >
-                          <TrashIcon class="w-3.5 h-3.5 shrink-0" />
-                          删除
-                        </button>
-                      </div>
                     </div>
                     <span v-if="!canEdit" class="text-xs text-gray-400">只读</span>
                   </div>
@@ -1348,6 +1244,81 @@ onUnmounted(() => {
         </table>
       </div>
     </div>
+
+    <!-- 更多操作菜单（Teleport 避免表格 overflow 裁切） -->
+    <Teleport to="body">
+      <div
+        v-if="openMoreItem && moreMenuPos"
+        class="fixed z-[9998] w-36 bg-white border border-gray-100 rounded-lg shadow-xl py-1 overflow-hidden"
+        :style="{
+          top: `${moreMenuPos.top}px`,
+          left: `${moreMenuPos.left}px`,
+          minWidth: `${moreMenuPos.minWidth}px`,
+          transform: moreMenuPos.openUp ? 'translate(-100%, -100%)' : 'translateX(-100%)',
+        }"
+        @click.stop
+      >
+        <button
+          v-if="profilingTasks[openMoreItem.id]?.status === 1"
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-amber-600 hover:bg-amber-50 transition-colors"
+          @click="requestCancelProfiling(openMoreItem); closeMore()"
+        >
+          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
+          停止摸排
+        </button>
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
+          :class="profilingTasks[openMoreItem.id]?.status === 1 || openMoreItem.status !== 1 ? 'text-gray-300 cursor-not-allowed' : 'text-indigo-600 hover:bg-indigo-50'"
+          :disabled="profilingTasks[openMoreItem.id]?.status === 1 || openMoreItem.status !== 1"
+          @click="requestProfiling(openMoreItem); closeMore()"
+        >
+          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" :class="profilingTasks[openMoreItem.id]?.status === 1 ? 'animate-spin' : ''" />
+          {{ profilingTasks[openMoreItem.id]?.status === 1 ? '摸排中...' : '启动摸排' }}
+        </button>
+        <button
+          v-if="hasProfilingHistory(openMoreItem)"
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+          @click="requestForceProfiling(openMoreItem); closeMore()"
+        >
+          <ArrowPathIcon class="w-3.5 h-3.5 shrink-0" />
+          全量重跑
+        </button>
+        <button
+          v-if="hasViewableProfiles(openMoreItem)"
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-purple-600 hover:bg-purple-50 transition-colors"
+          @click="openTableProfiles(openMoreItem); closeMore()"
+        >
+          <CircleStackIcon class="w-3.5 h-3.5 shrink-0" />
+          查看画像
+          <span
+            v-if="profilingTasks[openMoreItem.id]?.status === 1"
+            class="ml-auto text-[9px] text-purple-400 font-mono"
+          >{{ profilingTasks[openMoreItem.id]?.completed_profiles }}</span>
+        </button>
+        <div class="h-px bg-gray-100 mx-2 my-1" />
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+          @click="openCopyDialog(openMoreItem); closeMore()"
+        >
+          <DocumentDuplicateIcon class="w-3.5 h-3.5 shrink-0" />
+          复制新建
+        </button>
+        <div class="h-px bg-gray-100 mx-2 my-1" />
+        <button
+          type="button"
+          class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 transition-colors"
+          @click="confirmDelete(openMoreItem); closeMore()"
+        >
+          <TrashIcon class="w-3.5 h-3.5 shrink-0" />
+          删除
+        </button>
+      </div>
+    </Teleport>
 
     <!-- Create / Edit Dialog -->
     <Teleport to="body">
@@ -1674,16 +1645,13 @@ onUnmounted(() => {
               </div>
 
               <!-- 搜索框 -->
-              <div class="relative w-full">
-                <input
-                  v-model="profilesSearchQuery"
-                  class="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:bg-white"
-                  placeholder="过滤表名、备注或标签分类..."
-                >
-                <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                </svg>
-              </div>
+              <ClearableInput
+                v-model="profilesSearchQuery"
+                show-search-icon
+                wrapper-class="w-full bg-gray-50"
+                input-class="py-2 text-sm"
+                placeholder="过滤表名、备注或标签分类..."
+              />
 
               <!-- 快速标签过滤 -->
               <div v-if="availableTags.length > 0" class="flex flex-wrap items-center gap-1.5 pt-1">
