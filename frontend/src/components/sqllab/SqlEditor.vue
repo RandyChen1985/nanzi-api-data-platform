@@ -36,11 +36,13 @@ const props = defineProps<{
   noAccess?: boolean
   labMode: 'api' | 'analyst'
   recalledContext: any[]
+  previewLimit: number
 }>()
 
 const emit = defineEmits<{
   (e: 'update:activeTabIndex', idx: number): void
   (e: 'update:selectedSourceId', id: number): void
+  (e: 'update:previewLimit', value: number): void
   (e: 'create-tab'): void
   (e: 'close-tab', idx: number): void
   (e: 'close-all-tabs'): void
@@ -468,6 +470,19 @@ defineExpose({ focus })
         </Tooltip>
         <Tooltip text="清空当前编辑器内容" position="bottom">
           <button @click="clearSql" class="p-1.5 text-gray-500 hover:text-red-600"><TrashIcon class="w-4 h-4" /></button>
+        </Tooltip>
+
+        <Tooltip text="预览返回行数上限（SQL 未写 LIMIT 时生效）" position="bottom" align="end">
+          <select
+            v-if="hasPerm('element:lab:generate')"
+            :value="previewLimit"
+            class="h-8 px-2 text-xs border border-gray-200 rounded-md bg-white text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            @change="emit('update:previewLimit', Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option :value="50">50 行</option>
+            <option :value="100">100 行</option>
+            <option :value="200">200 行</option>
+          </select>
         </Tooltip>
 
         <Tooltip text="执行查询 (Ctrl/Cmd+Enter)；有选中执行选中，否则执行光标处语句" position="bottom" align="end">

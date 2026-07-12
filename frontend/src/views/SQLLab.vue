@@ -550,7 +550,20 @@ const deleteHistory = (index: number) => {
   showToast('已删除历史记录', 'info')
 }
 
-// --- Query Execution ---
+const PREVIEW_LIMIT_OPTIONS = [50, 100, 200] as const
+type PreviewLimit = (typeof PREVIEW_LIMIT_OPTIONS)[number]
+
+const loadPreviewLimit = (): PreviewLimit => {
+  const saved = Number(localStorage.getItem('sqllab_preview_limit'))
+  return (PREVIEW_LIMIT_OPTIONS as readonly number[]).includes(saved) ? (saved as PreviewLimit) : 100
+}
+
+const previewLimit = ref<PreviewLimit>(loadPreviewLimit())
+
+watch(previewLimit, (value) => {
+  localStorage.setItem('sqllab_preview_limit', String(value))
+})
+
 const resultPanelRef = ref<InstanceType<typeof ResultPanel> | null>(null)
 const sqlEditorRef = ref<InstanceType<typeof SqlEditor> | null>(null)
 
@@ -565,7 +578,7 @@ const runQuery = async (overrideSql?: string) => {
   currentTab.value.error = null
   const sqlToRun = overrideSql || currentTab.value.sql
   try {
-    const res = await axios.post('/api/portal/lab/preview', { source_id: selectedSourceId.value, sql: sqlToRun, params: currentTab.value.testParams, limit: 100 })
+    const res = await axios.post('/api/portal/lab/preview', { source_id: selectedSourceId.value, sql: sqlToRun, params: currentTab.value.testParams, limit: previewLimit.value })
     currentTab.value.result = res.data
     saveToHistory(sqlToRun, currentTab.value.testParams)
   } catch (e: any) { currentTab.value.error = e.response?.data?.message || e.response?.data?.detail || e.message }
@@ -1354,6 +1367,7 @@ onMounted(() => {
         <div class="flex-1 flex flex-col min-w-0">
           <SqlEditor 
             v-if="tabs.length > 0" ref="sqlEditorRef" :tabs="tabs" v-model:activeTabIndex="activeTabIndex" v-model:selectedSourceId="selectedSourceId"
+            v-model:preview-limit="previewLimit"
             :data-sources="dataSources" :history="queryHistory" :is-ai-enabled="isAiEnabled" :executing="currentTab?.executing || false"
             :ai-loading="aiLoading" :sidebar-collapsed="sidebarCollapsed" :has-perm="hasPerm" :available-tables="availableTables" :columns-cache="columnsCache"
             class="h-full" :lab-mode="labMode" :recalled-context="currentTab?.recalledContext || []"
@@ -1369,6 +1383,7 @@ onMounted(() => {
           :result="currentTab.result" :error="currentTab.error" :executing="currentTab.executing" :ai-loading="aiLoading"
           :ai-content="currentTab.aiContent" :optimized-sql="currentTab.optimizedSql" :lab-mode="labMode" :has-perm="hasPerm"
           :is-ai-enabled="isAiEnabled" :sql="currentTab.sql" :recalled-context="currentTab.recalledContext"
+          :preview-limit="previewLimit"
           class="flex-1"
           @clear-result="handleClearResult" @apply-ai-fix="applyAiFix" @open-analysis="openAiAnalysis" @export-excel="exportToExcel"
           @ai-fix-error="handleAiFixError"

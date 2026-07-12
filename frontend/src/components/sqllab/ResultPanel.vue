@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { PlayIcon, SparklesIcon } from '@heroicons/vue/24/outline'
+import { PlayIcon, SparklesIcon, TableCellsIcon, DocumentTextIcon, ArrowsRightLeftIcon } from '@heroicons/vue/24/outline'
 import MarkdownIt from 'markdown-it'
 import Tooltip from '../common/Tooltip.vue'
+import { useToast } from '../../composables/useToast'
+
+const { showToast } = useToast()
 
 const md = new MarkdownIt({
   html: true,
@@ -30,6 +33,7 @@ const props = defineProps<{
   isAiEnabled: boolean
   sql?: string
   recalledContext?: any[]
+  previewLimit?: number
 }>()
 
 const emit = defineEmits<{
@@ -44,6 +48,10 @@ const emit = defineEmits<{
 // Sorting Logic
 const sortColumn = ref<string | null>(null)
 const sortDirection = ref<'asc' | 'desc' | null>(null)
+type ResultViewMode = 'table' | 'text' | 'transpose'
+const resultViewMode = ref<ResultViewMode>('table')
+
+const formatCell = (value: unknown) => (value === null || value === undefined ? 'NULL' : String(value))
 
 const handleHeaderClick = (colName: string) => {
   if (sortColumn.value === colName) {
@@ -74,6 +82,33 @@ const sortedRows = computed(() => {
   })
   return rows
 })
+
+const textOutput = computed(() => {
+  if (!props.result) return ''
+  const header = props.result.columns.map(c => c.name).join('\t')
+  const body = sortedRows.value.map(row => row.map(formatCell).join('\t')).join('\n')
+  return body ? `${header}\n${body}` : header
+})
+
+const transposedTable = computed(() => {
+  if (!props.result) return { headers: [] as string[], rows: [] as string[][] }
+  const colNames = props.result.columns.map(c => c.name)
+  const headers = ['字段', ...sortedRows.value.map((_, i) => `行 ${i + 1}`)]
+  const rows = colNames.map((name, colIdx) => [
+    name,
+    ...sortedRows.value.map(row => formatCell(row[colIdx])),
+  ])
+  return { headers, rows }
+})
+
+const copyTextOutput = async () => {
+  try {
+    await navigator.clipboard.writeText(textOutput.value)
+    showToast('结果已复制为文本', 'success')
+  } catch {
+    showToast('复制失败', 'error')
+  }
+}
 
 const resultArea = ref<HTMLElement | null>(null)
 const scrollToTop = () => { resultArea.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
@@ -114,14 +149,43 @@ defineExpose({ scrollToTop })
     
     <div class="flex-1 min-h-0 bg-white">
       <div v-if="activeSubTab==='result'" class="h-full flex flex-col">
-        <div v-if="result" class="bg-blue-50/50 border-b border-blue-100 px-4 py-1.5 flex items-center justify-between text-[11px] text-blue-700">
-          <div class="flex items-center gap-4 font-bold">
+        <div v-if="result" class="bg-blue-50/50 border-b border-blue-100 px-4 py-1.5 flex items-center justify-between gap-3 text-[11px] text-blue-700">
+          <div class="flex items-center gap-4 font-bold min-w-0">
             <span>耗时: {{ result.execution_time_ms.toFixed(2) }}ms</span>
             <span>返回: {{ result.rows.length }} 行</span>
+            <span v-if="previewLimit" class="text-blue-500/80 font-medium">上限 {{ previewLimit }} 行</span>
           </div>
-          <Tooltip text="清空当前查询结果并聚焦编辑器" position="bottom" align="end">
-            <button @click="emit('clear-result')" class="text-blue-400 hover:text-blue-600 transition-colors">清除结果</button>
-          </Tooltip>
+          <div class="flex items-center gap-2 shrink-0">
+            <div class="flex items-center p-0.5 bg-white/80 border border-blue-100 rounded-md">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-colors"
+                :class="resultViewMode === 'table' ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-blue-50'"
+                @click="resultViewMode = 'table'"
+              >
+                <TableCellsIcon class="w-3 h-3" /> 表格
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-colors"
+                :class="resultViewMode === 'text' ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-blue-50'"
+                @click="resultViewMode = 'text'"
+              >
+                <DocumentTextIcon class="w-3 h-3" /> 文本
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-colors"
+                :class="resultViewMode === 'transpose' ? 'bg-blue-600 text-white' : 'text-blue-600 hover:bg-blue-50'"
+                @click="resultViewMode = 'transpose'"
+              >
+                <ArrowsRightLeftIcon class="w-3 h-3" /> 行转列
+              </button>
+            </div>
+            <Tooltip text="清空当前查询结果并聚焦编辑器" position="bottom" align="end">
+              <button @click="emit('clear-result')" class="text-blue-400 hover:text-blue-600 transition-colors">清除结果</button>
+            </Tooltip>
+          </div>
         </div>
         
         <div v-if="error" class="p-6 bg-red-50 m-4 rounded-xl border border-red-100 flex flex-col gap-4">
@@ -137,18 +201,56 @@ defineExpose({ scrollToTop })
           </div>
         </div>
         
-        <div v-else-if="result" class="overflow-auto flex-1">
-          <table class="min-w-full divide-y divide-gray-200 border-separate" style="border-spacing: 0">
+        <div v-else-if="result" class="overflow-auto flex-1 min-h-0">
+          <!-- 表格视图 -->
+          <table v-if="resultViewMode === 'table'" class="min-w-full divide-y divide-gray-200 border-separate" style="border-spacing: 0">
             <thead class="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th v-for="c in result.columns" :key="c.name" @click="handleHeaderClick(c.name)" class="px-6 py-3 text-left text-xs font-bold text-gray-500 border-b border-gray-200 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none">
                   {{ c.name }}
+                  <span v-if="sortColumn === c.name" class="ml-1 text-blue-500">{{ sortDirection === 'asc' ? '↑' : '↓' }}</span>
                 </th>
               </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
               <tr v-for="(r, i) in sortedRows" :key="i" class="hover:bg-gray-50 transition-colors">
-                <td v-for="(v, j) in r" :key="j" class="px-6 py-3 text-sm text-gray-600 font-mono border-b border-gray-100 whitespace-nowrap">{{ v === null ? 'NULL' : v }}</td>
+                <td v-for="(v, j) in r" :key="j" class="px-6 py-3 text-sm text-gray-600 font-mono border-b border-gray-100 whitespace-nowrap">{{ formatCell(v) }}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- 文本视图（TSV） -->
+          <div v-else-if="resultViewMode === 'text'" class="h-full flex flex-col">
+            <div class="flex justify-end px-4 py-2 border-b border-gray-100 bg-gray-50/50">
+              <button type="button" class="text-[11px] text-blue-600 hover:text-blue-800 font-medium" @click="copyTextOutput">复制文本</button>
+            </div>
+            <pre class="flex-1 p-4 text-xs leading-relaxed text-gray-700 font-mono whitespace-pre overflow-auto custom-scrollbar">{{ textOutput }}</pre>
+          </div>
+
+          <!-- 行转列视图 -->
+          <table v-else class="min-w-full divide-y divide-gray-200 border-separate" style="border-spacing: 0">
+            <thead class="bg-gray-50 sticky top-0 z-10">
+              <tr>
+                <th
+                  v-for="(header, idx) in transposedTable.headers"
+                  :key="header"
+                  class="px-4 py-3 text-left text-xs font-bold border-b border-gray-200 uppercase tracking-wider select-none"
+                  :class="idx === 0 ? 'text-gray-700 bg-gray-100' : 'text-gray-500'"
+                >
+                  {{ header }}
+                </th>
+              </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+              <tr v-for="(row, i) in transposedTable.rows" :key="i" class="hover:bg-gray-50 transition-colors">
+                <td
+                  v-for="(cell, j) in row"
+                  :key="j"
+                  class="px-4 py-2.5 text-sm font-mono border-b border-gray-100"
+                  :class="j === 0 ? 'text-gray-800 font-semibold bg-gray-50/50 whitespace-nowrap' : 'text-gray-600 whitespace-nowrap'"
+                >
+                  {{ cell }}
+                </td>
               </tr>
             </tbody>
           </table>
