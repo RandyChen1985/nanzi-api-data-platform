@@ -331,25 +331,59 @@ async def get_datasource_profile_task(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get(
-    "/datasources/{source_id}/table-profiles/{table_name}",
-    response_model=DbTableProfileResponse,
-)
-async def get_datasource_table_profile(
+@router.get("/datasources/{source_id}/table-profiles/search")
+async def search_datasource_table_profiles(
     source_id: int,
-    table_name: str,
+    q: Optional[str] = None,
+    tag: Optional[str] = None,
+    scope: str = Query("profiled", description="all | profiled"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(40, ge=1, le=100),
+    include_ignored: bool = Query(True, description="包含已忽略表"),
     user: dict = Depends(require_api_key),
 ):
-    """获取单张表的完整摸排画像（按需加载）"""
+    """数据源画像浏览：分页搜索表画像（与 SQL Lab 探索器同款能力）"""
+    from app.services.lab_enhancement_service import LabEnhancementService
+
+    return await LabEnhancementService.search_tables(
+        int(user["user_id"]),
+        source_id,
+        q=q,
+        tag=tag,
+        scope=scope,
+        page=page,
+        page_size=page_size,
+        include_ignored=include_ignored,
+    )
+
+
+@router.get("/datasources/{source_id}/table-profiles/tags")
+async def list_datasource_table_profile_tags(
+    source_id: int,
+    user: dict = Depends(require_api_key),
+):
+    """数据源画像浏览：聚合 AI 标签"""
+    from app.services.lab_enhancement_service import LabEnhancementService
+
+    return await LabEnhancementService.aggregate_table_tags(source_id)
+
+
+@router.put("/datasources/{source_id}/table-profiles/ignore")
+async def toggle_table_profile_ignore(
+    source_id: int,
+    payload: TableProfileIgnorePayload,
+    user: dict = Depends(require_permission("element:datasource:edit"))
+):
+    """
+    手动修改指定物理表的忽略状态
+    """
     try:
-        profile = await DbProfileService.get_table_profile(source_id, table_name)
-        if not profile:
+        res = await DbProfileService.toggle_ignore(source_id, payload.table_name, payload.is_ignored)
+        if not res:
             raise HTTPException(status_code=404, detail="Table profile not found")
-        return profile
-    except HTTPException:
-        raise
+        return {"status": "success", "message": "修改成功", "data": res}
     except Exception as e:
-        logger.error(f"Failed to get table profile: {e}")
+        logger.error(f"Failed to toggle table profile ignore: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -374,21 +408,24 @@ async def list_datasource_table_profiles(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/datasources/{source_id}/table-profiles/ignore")
-async def toggle_table_profile_ignore(
+@router.get(
+    "/datasources/{source_id}/table-profiles/{table_name}",
+    response_model=DbTableProfileResponse,
+)
+async def get_datasource_table_profile(
     source_id: int,
-    payload: TableProfileIgnorePayload,
-    user: dict = Depends(require_permission("element:datasource:edit"))
+    table_name: str,
+    user: dict = Depends(require_api_key),
 ):
-    """
-    手动修改指定物理表的忽略状态
-    """
+    """获取单张表的完整摸排画像（按需加载）"""
     try:
-        res = await DbProfileService.toggle_ignore(source_id, payload.table_name, payload.is_ignored)
-        if not res:
+        profile = await DbProfileService.get_table_profile(source_id, table_name)
+        if not profile:
             raise HTTPException(status_code=404, detail="Table profile not found")
-        return {"status": "success", "message": "修改成功", "data": res}
+        return profile
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to toggle table profile ignore: {e}")
+        logger.error(f"Failed to get table profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

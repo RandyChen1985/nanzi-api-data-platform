@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import {
   XMarkIcon,
   PaperAirplaneIcon,
@@ -9,6 +9,8 @@ import {
   CheckIcon,
   ClockIcon,
   TrashIcon,
+  StopIcon,
+  ArrowPathIcon,
 } from "@heroicons/vue/24/outline";
 import { renderMarkdown } from "../../utils/markdown";
 import axios from "@/utils/axios";
@@ -146,14 +148,56 @@ const deleteSession = async (sessionId: number) => {
 interface Message {
   role: "user" | "assistant";
   content: string;
-  charts?: any[]; // 支持多个图表
-  suggestions?: string[]; // 引导追问建议
+  charts?: any[];
+  suggestions?: string[];
+  createdAt?: number;
 }
+
+const formatMessageTime = (ts?: number) => {
+  if (!ts) return "";
+  return new Date(ts).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const copyMessage = (msg: Message, idx: number) => {
+  if (!msg.content?.trim()) return;
+  copyToClipboard(msg.content, idx);
+  showToast("已复制", "success");
+};
+
+const retryMessage = (idx: number) => {
+  if (loading.value) return;
+
+  let userIdx = idx;
+  if (messages.value[idx]?.role === "assistant") {
+    userIdx = idx - 1;
+    while (userIdx >= 0 && messages.value[userIdx]?.role !== "user") userIdx--;
+  }
+  const userMsg = messages.value[userIdx];
+  if (!userMsg || userMsg.role !== "user") return;
+
+  const prompt = userMsg.content;
+  messages.value = messages.value.slice(0, userIdx);
+  sendMessage(prompt);
+};
+
+const isMessageStreaming = (idx: number) =>
+  loading.value && idx === messages.value.length - 1 && messages.value[idx]?.role === "assistant";
 
 const messages = ref<Message[]>([]);
 const inputText = ref("");
 const loading = ref(false);
 const chatScrollRef = ref<HTMLElement | null>(null);
+const chatAbortController = ref<AbortController | null>(null);
+
+const stopGeneration = () => {
+  if (!loading.value) return;
+  chatAbortController.value?.abort();
+};
 
 const scrollToBottom = () => {
   nextTick(() => {
@@ -208,10 +252,10 @@ const parseMessageContent = (content: string) => {
     }
   
     if (!customPrompt) {
-      messages.value.push({ role: 'user', content: text })
+      messages.value.push({ role: 'user', content: text, createdAt: Date.now() })
       inputText.value = ''
     } else {
-      messages.value.push({ role: 'user', content: text })
+      messages.value.push({ role: 'user', content: text, createdAt: Date.now() })
     }
     
     loading.value = true
@@ -222,8 +266,13 @@ const parseMessageContent = (content: string) => {
       role: 'assistant', 
       content: '', 
       charts: [],
-      suggestions: []
+      suggestions: [],
+      createdAt: Date.now(),
     })
+
+    chatAbortController.value?.abort()
+    chatAbortController.value = new AbortController()
+    const { signal } = chatAbortController.value
   
     try {
       // 限制发送给 AI 的数据量，防止 payload 过大导致 400 错误
@@ -251,7 +300,8 @@ const parseMessageContent = (content: string) => {
         body: JSON.stringify({
           prompt: text,
           context: contextStr
-        })
+        }),
+        signal,
       })
   
       if (!response.ok) {
@@ -271,6 +321,11 @@ const parseMessageContent = (content: string) => {
       let rawAccumulatedContent = ''
   
       while (true) {
+        if (signal.aborted) {
+          await reader.cancel().catch(() => {})
+          break
+        }
+
         const { done, value } = await reader.read()
         if (done) {
             break
@@ -290,10 +345,19 @@ const parseMessageContent = (content: string) => {
         scrollToBottom()
       }
     } catch (e: any) {
-      if (messages.value[assistantMsgIndex]) {
+      if (e?.name === 'AbortError' || signal.aborted) {
+        const msg = messages.value[assistantMsgIndex]
+        if (msg) {
+          msg.content = msg.content
+            ? `${msg.content}\n\n_[已中断生成]_`
+            : '_[已中断生成]_'
+        }
+        showToast('已中断 AI 分析', 'info')
+      } else if (messages.value[assistantMsgIndex]) {
         messages.value[assistantMsgIndex].content += `\n\n❌ 分析失败: ${e.message}`
       }
     } finally {
+      chatAbortController.value = null
       loading.value = false
       scrollToBottom()
     }
@@ -309,21 +373,27 @@ watch(
 watch(
   () => props.isOpen,
   (newVal) => {
-    if (newVal) {
-      if (suppressAutoStart.value) return;
-      // 如果 SQL 变化了，或者还没有任何消息，则重置并开始新分析
-      if (
-        props.initialQuery !== lastAnalyzedQuery.value ||
-        messages.value.length === 0
-      ) {
-        resetChat();
-        sendMessage(
-          "请作为数据运营专家，根据这份最新的查询结果提供核心洞察和建议。如果适合可视化，请在回复中包含图表。",
-        );
-      }
+    if (!newVal) {
+      stopGeneration();
+      return;
+    }
+    if (suppressAutoStart.value) return;
+    // 如果 SQL 变化了，或者还没有任何消息，则重置并开始新分析
+    if (
+      props.initialQuery !== lastAnalyzedQuery.value ||
+      messages.value.length === 0
+    ) {
+      resetChat();
+      sendMessage(
+        "请作为数据运营专家，根据这份最新的查询结果提供核心洞察和建议。如果适合可视化，请在回复中包含图表。",
+      );
     }
   },
 );
+
+onBeforeUnmount(() => {
+  stopGeneration();
+});
 
 onMounted(() => {
   if (props.isOpen) {
@@ -403,17 +473,19 @@ onMounted(() => {
                 : 'bg-white border-gray-100 text-gray-800 rounded-tl-none assistant-bubble hover:border-indigo-100'
             ]"
           >
-            <!-- Message-level Copy Button (Restored) -->
-            <button
-              v-if="msg.role === 'assistant' && msg.content"
-              @click.stop="copyToClipboard(msg.content, idx)"
-              class="absolute -top-3 -right-3 p-1.5 bg-white border border-gray-200 rounded-lg shadow-md text-gray-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all z-20"
-              title="复制完整回复"
-            >
-              <component :is="copiedId === idx ? CheckIcon : DocumentDuplicateIcon" class="w-3.5 h-3.5" />
-            </button>
-
             <div
+              v-if="isMessageStreaming(idx) && !msg.content?.trim()"
+              class="flex items-center gap-3 py-1"
+            >
+              <div class="flex gap-1">
+                <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></div>
+                <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+              </div>
+              <span class="text-xs text-gray-400 italic">正在思考并分析数据...</span>
+            </div>
+            <div
+              v-else
               class="markdown-body prose prose-sm max-w-none break-words overflow-hidden"
               :class="msg.role === 'user' ? 'prose-invert' : 'prose-indigo'"
               @click="handleMarkdownClick"
@@ -432,6 +504,33 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- 时间 / 复制 / 重试 -->
+          <div
+            v-if="(msg.content || msg.role === 'user') && !isMessageStreaming(idx)"
+            class="mt-1.5 flex items-center gap-3 text-[10px] text-gray-400"
+            :class="msg.role === 'user' ? 'flex-row-reverse' : ''"
+          >
+            <span class="tabular-nums">{{ formatMessageTime(msg.createdAt) }}</span>
+            <button
+              v-if="msg.content?.trim()"
+              type="button"
+              class="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors"
+              @click="copyMessage(msg, idx)"
+            >
+              <component :is="copiedId === idx ? CheckIcon : DocumentDuplicateIcon" class="w-3 h-3" />
+              {{ copiedId === idx ? '已复制' : '复制' }}
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              :disabled="loading"
+              @click="retryMessage(idx)"
+            >
+              <ArrowPathIcon class="w-3 h-3" />
+              重试
+            </button>
+          </div>
+
           <!-- Guided Suggestions -->
           <div
             v-if="msg.suggestions && msg.suggestions.length > 0"
@@ -441,25 +540,12 @@ onMounted(() => {
               v-for="suggest in msg.suggestions"
               :key="suggest"
               @click="sendMessage(suggest)"
-              class="px-3 py-1.5 bg-white text-indigo-600 hover:bg-indigo-50 rounded-full text-[11px] font-medium transition-all border border-indigo-100 shadow-sm"
+              :disabled="loading"
+              class="px-3 py-1.5 bg-white text-indigo-600 hover:bg-indigo-50 rounded-full text-[11px] font-medium transition-all border border-indigo-100 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {{ suggest }}
             </button>
           </div>
-        </div>
-      </div>
-
-      <div v-if="loading && !messages[messages.length-1]?.content" class="flex items-start gap-3">
-        <div class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-indigo-600 flex items-center justify-center shadow-sm">
-          <SparklesIcon class="w-5 h-5 animate-pulse" />
-        </div>
-        <div class="bg-white border border-gray-100 rounded-2xl p-4 rounded-tl-none shadow-sm flex items-center gap-3">
-          <div class="flex gap-1">
-            <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></div>
-            <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
-            <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
-          </div>
-          <span class="text-xs text-gray-400 italic">正在思考并分析数据...</span>
         </div>
       </div>
     </div>
@@ -503,15 +589,27 @@ onMounted(() => {
       <div class="relative flex items-center">
         <textarea
           v-model="inputText"
-          @keydown.enter.prevent="sendMessage()"
+          @keydown.enter.prevent="loading ? stopGeneration() : sendMessage()"
           placeholder="深入挖掘数据，例如：分析异常值原因..."
           rows="2"
           class="w-full pl-4 pr-12 py-3 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none transition-all"
         ></textarea>
         <button
+          v-if="loading"
+          type="button"
+          @click="stopGeneration"
+          class="absolute right-2 p-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all shadow-md ring-2 ring-red-200"
+          title="中断生成"
+        >
+          <StopIcon class="w-5 h-5" />
+        </button>
+        <button
+          v-else
+          type="button"
           @click="sendMessage()"
-          :disabled="!inputText.trim() || loading"
+          :disabled="!inputText.trim()"
           class="absolute right-2 p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-md"
+          title="发送"
         >
           <PaperAirplaneIcon class="w-5 h-5" />
         </button>

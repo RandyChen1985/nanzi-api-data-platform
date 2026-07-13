@@ -1000,6 +1000,7 @@ async def search_lab_tables(
     recent: Optional[str] = Query(None, description="scope=recent 时逗号分隔的表名"),
     page: int = Query(1, ge=1),
     page_size: int = Query(40, ge=1, le=100),
+    include_ignored: bool = Query(False, description="为 true 时包含已忽略表（数据源画像浏览）"),
     user=Depends(require_permission("element:lab:generate")),
 ):
     """表探索器：关键词搜索摸排画像（分页）"""
@@ -1013,6 +1014,7 @@ async def search_lab_tables(
         recent_tables=recent_tables,
         page=page,
         page_size=page_size,
+        include_ignored=include_ignored,
     )
 
 

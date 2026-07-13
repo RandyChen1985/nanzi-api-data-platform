@@ -221,18 +221,20 @@ class LabEnhancementService:
         recent_tables: Optional[List[str]] = None,
         page: int = 1,
         page_size: int = 40,
+        include_ignored: bool = False,
     ) -> Dict[str, Any]:
         """关键词搜索表画像（分页），支持收藏/最近/标签筛选"""
         page_size = min(max(int(page_size), 1), 100)
         page = max(int(page), 1)
         offset = (page - 1) * page_size
 
-        join_clause = """
+        ignored_clause = "" if include_ignored else " AND p.is_ignored = 0"
+        join_clause = f"""
             FROM db_table_profiles p
             LEFT JOIN lab_table_favorites f
               ON f.user_id = %s AND f.source_id = %s
              AND f.table_name COLLATE utf8mb4_unicode_ci = p.table_name
-            WHERE p.connection_id = %s AND p.is_ignored = 0
+            WHERE p.connection_id = %s{ignored_clause}
         """
         base_params: List[Any] = [user_id, source_id, source_id]
         conditions: List[str] = []
@@ -295,7 +297,7 @@ class LabEnhancementService:
         count_sql = f"SELECT COUNT(*) AS cnt {join_clause}{where_extra}"
         list_sql = f"""
             SELECT p.table_name, p.table_type, p.ai_term, p.ai_description, p.ai_tags,
-                   p.status, p.confidence_score, p.is_temporary,
+                   p.status, p.confidence_score, p.is_temporary, p.is_ignored, p.confidence_reason,
                    f.is_pinned, f.note AS favorite_note,
                    (CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END) AS is_favorite
             {join_clause}{where_extra}
@@ -331,6 +333,8 @@ class LabEnhancementService:
                 "status": row.get("status"),
                 "confidence_score": row.get("confidence_score"),
                 "is_temporary": bool(row.get("is_temporary")),
+                "is_ignored": bool(row.get("is_ignored")),
+                "confidence_reason": row.get("confidence_reason"),
                 "is_favorite": bool(row.get("is_favorite")),
                 "is_pinned": bool(row.get("is_pinned")),
                 "favorite_note": row.get("favorite_note"),

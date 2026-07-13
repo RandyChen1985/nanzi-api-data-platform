@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, reactive, onUnmounted } from 'vue'
 import draggable from 'vuedraggable'
 import axios from '@/utils/axios'
 import Toast from '@/components/Toast.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import Switch from '@/components/Switch.vue'
 import ClearableInput from '@/components/common/ClearableInput.vue'
+import LabTableExplorer from '@/components/sqllab/LabTableExplorer.vue'
 import {
   PencilSquareIcon,
   TrashIcon,
@@ -799,180 +800,26 @@ const closePermissionsView = () => {
   permissionsData.value = null
 }
 
-// 查看摸排分析结果 Modal 状态
+// 查看摸排分析结果
 const showProfilesTarget = ref<DataSource | null>(null)
-const viewTableProfiles = ref<any[]>([])
-const loadingViewProfiles = ref(false)
-const isRenderingProfiles = ref(false)
-const profilesSearchQuery = ref('')
-const profilesSortBy = ref<'name' | 'confidence_desc' | 'confidence_asc'>('confidence_desc')
-const selectedProfileTag = ref<string | null>(null)
-const isTagsExpanded = ref(false)
-const expandedTables = ref<Record<string, boolean>>({})
-const loadingProfileDetails = ref<Record<string, boolean>>({})
 
 const openTableProfiles = async (item: DataSource) => {
   showProfilesTarget.value = item
-  loadingViewProfiles.value = true
-  isRenderingProfiles.value = false
-  viewTableProfiles.value = []
-  profileModalTask.value = null
-  profilesSearchQuery.value = ''
-  profilesSortBy.value = 'confidence_desc'
-  selectedProfileTag.value = null
-  isTagsExpanded.value = false
-  expandedTables.value = {}
-  loadingProfileDetails.value = {}
+  profileModalTask.value = profilingTasks.value[item.id] || null
   try {
-    const [profilesRes, taskRes] = await Promise.all([
-      axios.get(`/api/portal/datasource/datasources/${item.id}/table-profiles`, {
-        params: { summary: true },
-      }),
-      axios.get(`/api/portal/datasource/datasources/${item.id}/profile-task`),
-    ])
-    viewTableProfiles.value = profilesRes.data || []
+    const taskRes = await axios.get(`/api/portal/datasource/datasources/${item.id}/profile-task`)
     if (taskRes.data) {
       profileModalTask.value = taskRes.data
       profilingTasks.value[item.id] = taskRes.data
-    } else {
-      const cached = profilingTasks.value[item.id]
-      if (cached) {
-        profileModalTask.value = cached
-      }
     }
   } catch {
-    showToast('获取摸排结果失败', 'error')
-  } finally {
-    loadingViewProfiles.value = false
-    const profileCount = viewTableProfiles.value.length
-    if (profileCount > 0) {
-      isRenderingProfiles.value = true
-      await nextTick()
-      const renderDelay = profileCount > 500 ? 400 : profileCount > 100 ? 200 : 80
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            window.setTimeout(resolve, renderDelay)
-          })
-        })
-      })
-      isRenderingProfiles.value = false
-    }
-  }
-}
-
-const loadProfileDetail = async (tableName: string) => {
-  if (!showProfilesTarget.value || loadingProfileDetails.value[tableName]) return
-  const existing = viewTableProfiles.value.find((p: any) => p.table_name === tableName)
-  if (existing?.columns_profile?.length || existing?.ddl) return
-
-  loadingProfileDetails.value[tableName] = true
-  try {
-    const res = await axios.get(
-      `/api/portal/datasource/datasources/${showProfilesTarget.value.id}/table-profiles/${encodeURIComponent(tableName)}`
-    )
-    const idx = viewTableProfiles.value.findIndex((p: any) => p.table_name === tableName)
-    if (idx >= 0) {
-      viewTableProfiles.value[idx] = { ...viewTableProfiles.value[idx], ...res.data }
-    }
-  } catch {
-    showToast(`加载表 [${tableName}] 画像详情失败`, 'error')
-  } finally {
-    loadingProfileDetails.value[tableName] = false
+    // 沿用缓存任务状态即可
   }
 }
 
 const closeTableProfiles = () => {
   showProfilesTarget.value = null
-  viewTableProfiles.value = []
   profileModalTask.value = null
-  isRenderingProfiles.value = false
-}
-
-const toggleTableExpand = (tableName: string) => {
-  expandedTables.value[tableName] = !expandedTables.value[tableName]
-  if (expandedTables.value[tableName]) {
-    loadProfileDetail(tableName)
-  }
-}
-
-const toggleProfileTag = (tag: string) => {
-  if (selectedProfileTag.value === tag) {
-    selectedProfileTag.value = null
-  } else {
-    selectedProfileTag.value = tag
-    const idx = availableTags.value.findIndex((t: any) => t.name === tag)
-    if (idx >= 8) {
-      isTagsExpanded.value = true
-    }
-  }
-}
-
-const availableTags = computed(() => {
-  const counts: Record<string, number> = {}
-  viewTableProfiles.value.forEach((p: any) => {
-    if (p.ai_tags && Array.isArray(p.ai_tags)) {
-      p.ai_tags.forEach((t: string) => {
-        if (t && t.trim()) {
-          const cleanTag = t.trim()
-          counts[cleanTag] = (counts[cleanTag] || 0) + 1
-        }
-      })
-    }
-  })
-  return Object.entries(counts)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-})
-
-const filteredViewProfiles = computed(() => {
-  let list = [...viewTableProfiles.value]
-
-  if (selectedProfileTag.value) {
-    list = list.filter((p: any) => p.ai_tags && p.ai_tags.includes(selectedProfileTag.value))
-  }
-
-  const q = profilesSearchQuery.value.trim().toLowerCase()
-  if (q) {
-    list = list.filter((p: any) =>
-      p.table_name.toLowerCase().includes(q) ||
-      (p.ai_term && p.ai_term.toLowerCase().includes(q)) ||
-      (p.ai_description && p.ai_description.toLowerCase().includes(q)) ||
-      (p.ai_tags && p.ai_tags.some((tag: string) => tag.toLowerCase().includes(q)))
-    )
-  }
-
-  list.sort((a: any, b: any) => {
-    if (profilesSortBy.value === 'confidence_desc') {
-      return (b.confidence_score ?? 0) - (a.confidence_score ?? 0) || a.table_name.localeCompare(b.table_name)
-    }
-    if (profilesSortBy.value === 'confidence_asc') {
-      return (a.confidence_score ?? 0) - (b.confidence_score ?? 0) || a.table_name.localeCompare(b.table_name)
-    }
-    return a.table_name.localeCompare(b.table_name)
-  })
-
-  return list
-})
-
-const togglingIgnore = ref<Record<string, boolean>>({})
-
-const toggleProfileIgnore = async (profile: any) => {
-  if (!showProfilesTarget.value) return
-  const configId = showProfilesTarget.value.id
-  const tableName = profile.table_name
-  const nextVal = profile.is_ignored === 1 ? 0 : 1
-
-  togglingIgnore.value[tableName] = true
-  try {
-    await axios.put(`/api/portal/datasource/datasources/${configId}/table-profiles/ignore`, { table_name: tableName, is_ignored: nextVal })
-    profile.is_ignored = nextVal
-    showToast(`已${nextVal === 1 ? '忽略' : '启用'}表 “${tableName}”`, 'success')
-  } catch {
-    showToast('更新忽略状态失败', 'error')
-  } finally {
-    togglingIgnore.value[tableName] = false
-  }
 }
 
 const closeMore = () => {
@@ -1816,272 +1663,17 @@ onUnmounted(() => {
       </div>
     </Teleport>
 
-    <!-- 智能摸排结果查看 Drawer/Modal -->
-    <Teleport to="body">
-      <div v-if="showProfilesTarget" class="fixed inset-0 z-[9990] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-          <div @click="closeTableProfiles" class="fixed inset-0 bg-black/50 transition-opacity" aria-hidden="true"></div>
-
-          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-
-          <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full border border-gray-100">
-            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="text-xl">🤖</span>
-                <div>
-                  <h3 class="text-base font-black text-gray-900">数据源摸排资产列表: {{ showProfilesTarget.source_name }}</h3>
-                  <p class="text-xs text-gray-500 mt-0.5">展示已通过大模型分析出的物理表/视图之业务备注与字段结构画像</p>
-                  <p v-if="profileModalTimeLabel" class="text-[11px] text-indigo-600/80 font-medium mt-1">{{ profileModalTimeLabel }}</p>
-                </div>
-              </div>
-              <button @click="closeTableProfiles" class="text-gray-400 hover:text-gray-600 transition-colors text-xl font-bold p-1">
-                ✕
-              </button>
-            </div>
-
-            <div class="p-6 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar relative min-h-[280px]">
-              <div
-                v-if="loadingViewProfiles || isRenderingProfiles"
-                class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-white/90 backdrop-blur-[1px]"
-              >
-                <div class="relative">
-                  <div class="w-12 h-12 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
-                  <span class="absolute inset-0 flex items-center justify-center text-lg select-none">🤖</span>
-                </div>
-                <div class="text-center space-y-1 px-6">
-                  <p class="text-sm font-bold text-gray-800">
-                    {{ loadingViewProfiles ? '正在加载摸排画像...' : '正在渲染资产列表...' }}
-                  </p>
-                  <p class="text-xs text-gray-500">
-                    <template v-if="loadingViewProfiles">数据量较大时可能需要几秒钟，请稍候</template>
-                    <template v-else>共 {{ viewTableProfiles.length }} 张表，正在生成列表</template>
-                  </p>
-                </div>
-              </div>
-
-              <template v-if="!loadingViewProfiles && !isRenderingProfiles">
-              <!-- 资产分析概览面板 -->
-              <div v-if="!loadingViewProfiles && viewTableProfiles.length > 0" class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-gray-50/50 p-4 rounded-xl border border-gray-100 shrink-0">
-                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
-                  <span class="text-xl p-2 bg-indigo-50 rounded-lg text-indigo-600 select-none">📊</span>
-                  <div class="min-w-0">
-                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">摸排资产总数</div>
-                    <div class="text-base font-black text-gray-800">{{ viewTableProfiles.length }} <span class="text-[10px] text-gray-400 font-normal">个</span></div>
-                  </div>
-                </div>
-                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
-                  <span class="text-xl p-2 bg-blue-50 rounded-lg text-blue-600 select-none">📁</span>
-                  <div class="min-w-0">
-                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">物理表</div>
-                    <div class="text-base font-black text-gray-800">
-                      {{ viewTableProfiles.filter(p => p.table_type !== 'view').length }}
-                      <span class="text-[10px] text-gray-400 font-normal">张</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
-                  <span class="text-xl p-2 bg-amber-50 rounded-lg text-amber-600 select-none">👁️</span>
-                  <div class="min-w-0">
-                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">虚拟视图</div>
-                    <div class="text-base font-black text-gray-800">
-                      {{ viewTableProfiles.filter(p => p.table_type === 'view').length }}
-                      <span class="text-[10px] text-gray-400 font-normal">个</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="bg-white p-3 rounded-lg border border-gray-200/60 shadow-sm flex items-center gap-3">
-                  <span class="text-xl p-2 bg-emerald-50 rounded-lg text-emerald-600 select-none">🏷️</span>
-                  <div class="min-w-0">
-                    <div class="text-[10px] text-gray-400 font-bold uppercase tracking-wider truncate">字段画像总数</div>
-                    <div class="text-base font-black text-gray-800">
-                      {{ viewTableProfiles.reduce((acc, p) => acc + (p.columns_count || p.columns_profile?.length || 0), 0) }}
-                      <span class="text-[10px] text-gray-400 font-normal">个</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- 搜索与排序 -->
-              <div class="flex flex-col sm:flex-row gap-2">
-                <ClearableInput
-                  v-model="profilesSearchQuery"
-                  show-search-icon
-                  wrapper-class="w-full sm:flex-1 bg-gray-50"
-                  input-class="py-2 text-sm"
-                  placeholder="过滤表名、备注或标签分类..."
-                />
-                <select
-                  v-model="profilesSortBy"
-                  class="shrink-0 text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                >
-                  <option value="confidence_desc">置信度从高到低</option>
-                  <option value="confidence_asc">置信度从低到高</option>
-                  <option value="name">表名 A→Z</option>
-                </select>
-              </div>
-
-              <!-- 快速标签过滤 -->
-              <div v-if="availableTags.length > 0" class="flex flex-wrap items-center gap-1.5 pt-1">
-                <span class="text-xs font-bold text-gray-400 mr-1.5 select-none">快速过滤:</span>
-                <button
-                  @click="selectedProfileTag = null"
-                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1', !selectedProfileTag ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20' : 'bg-gray-100 border-gray-200/50 hover:bg-gray-200/50 text-gray-600']"
-                >
-                  <span>全部</span>
-                  <span :class="['text-[9px] px-1 py-0.2 rounded-full font-bold', !selectedProfileTag ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500']">{{ viewTableProfiles.length }}</span>
-                </button>
-                <button
-                  v-for="tag in (isTagsExpanded ? availableTags : availableTags.slice(0, 8))"
-                  :key="tag.name"
-                  @click="toggleProfileTag(tag.name)"
-                  :class="['px-2.5 py-1 rounded-full text-xs font-medium border transition-all cursor-pointer flex items-center gap-1.5', selectedProfileTag === tag.name ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20' : 'bg-gray-100 border-gray-200/50 hover:bg-gray-200/50 text-gray-600']"
-                >
-                  <span>{{ tag.name }}</span>
-                  <span :class="['text-[9px] px-1 py-0.2 rounded-full font-bold', selectedProfileTag === tag.name ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-500']">{{ tag.count }}</span>
-                </button>
-                <button
-                  v-if="availableTags.length > 8"
-                  @click="isTagsExpanded = !isTagsExpanded"
-                  class="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 transition-all cursor-pointer flex items-center gap-0.5"
-                >
-                  <span>{{ isTagsExpanded ? '收起 ▴' : `更多 (${availableTags.length - 8}) ▾` }}</span>
-                </button>
-              </div>
-
-              <div v-if="filteredViewProfiles.length === 0" class="py-12 text-center text-gray-400 text-sm italic bg-gray-50 rounded-lg">
-                暂无匹配的摸排表记录。
-              </div>
-              <div v-else class="space-y-3">
-                <div 
-                  v-for="profile in filteredViewProfiles" 
-                  :key="profile.table_name"
-                  class="border border-gray-200/80 rounded-xl overflow-hidden shadow-sm hover:border-gray-300 transition-all"
-                  :class="profile.is_ignored === 1 ? 'opacity-70 bg-gray-50/40' : 'bg-white'"
-                >
-                  <!-- 卡片头部 -->
-                  <div 
-                    @click="toggleTableExpand(profile.table_name)"
-                    class="p-4 bg-gray-50/30 hover:bg-gray-50/80 transition-colors flex items-center justify-between cursor-pointer"
-                  >
-                    <div class="min-w-0 flex-1 space-y-1">
-                      <div class="flex items-center gap-2 flex-wrap">
-                        <!-- 忽略/启用开关 -->
-                        <div class="flex items-center gap-1.5 mr-1" @click.stop>
-                          <button 
-                            @click="toggleProfileIgnore(profile)"
-                            :disabled="togglingIgnore[profile.table_name]"
-                            class="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
-                            :class="profile.is_ignored === 1 ? 'bg-red-500' : 'bg-emerald-500'"
-                            :title="profile.is_ignored === 1 ? '该表已在分析中被忽略，点击恢复' : '该表已在分析中启用，点击忽略'"
-                          >
-                            <span 
-                              class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
-                              :class="profile.is_ignored === 1 ? 'translate-x-3' : 'translate-x-0'"
-                            ></span>
-                          </button>
-                          <span class="text-[9px] font-black tracking-wide" :class="profile.is_ignored === 1 ? 'text-red-500' : 'text-emerald-600'">
-                            {{ profile.is_ignored === 1 ? '已忽略' : '已启用' }}
-                          </span>
-                        </div>
-
-                        <span class="font-mono text-sm font-bold text-gray-900">{{ profile.table_name }}</span>
-                        <span 
-                          class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
-                          :class="profile.table_type === 'view' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'"
-                        >
-                          {{ profile.table_type === 'view' ? '视图' : '表' }}
-                        </span>
-                        <span v-if="profile.status === 3" class="px-1.5 py-0.5 rounded text-[9px] bg-red-50 text-red-500 font-bold">分析失败</span>
-                      </div>
-
-                      <div v-if="profile.ai_term" class="text-xs text-indigo-600 font-bold">
-                        💡 业务备注：{{ profile.ai_term }}
-                      </div>
-
-                      <!-- 置信度与判定原因展示 -->
-                      <div class="flex items-center gap-3 text-[11px] mt-1.5 flex-wrap">
-                        <div class="flex items-center gap-1 font-bold shrink-0">
-                          <span class="text-gray-400">业务可信度:</span>
-                          <span 
-                            class="px-1 py-0.2 rounded text-[9px] font-black"
-                            :class="profile.confidence_score >= 80 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/50' : profile.confidence_score >= 60 ? 'bg-amber-50 text-amber-700 border border-amber-200/50' : 'bg-red-50 text-red-700 border border-red-200/50'"
-                          >
-                            {{ profile.confidence_score }} 分
-                          </span>
-                          <span v-if="profile.is_temporary === 1" class="px-1.5 py-0.2 rounded text-[9px] bg-amber-100 text-amber-800 font-bold border border-amber-200/40">低价值临时表</span>
-                        </div>
-                        <div v-if="profile.confidence_reason" class="text-gray-400 truncate max-w-[400px]" :title="profile.confidence_reason">
-                          原因: {{ profile.confidence_reason }}
-                        </div>
-                      </div>
-
-                      <div v-if="profile.ai_description" class="text-xs text-gray-500 leading-relaxed mt-1">
-                        用途：{{ profile.ai_description }}
-                      </div>
-
-                      <!-- 标签 -->
-                      <div v-if="profile.ai_tags && profile.ai_tags.length > 0" class="flex flex-wrap gap-1 mt-1.5">
-                        <span 
-                          v-for="tag in profile.ai_tags" 
-                          :key="tag"
-                          @click.stop="toggleProfileTag(tag)"
-                          :class="['px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors cursor-pointer', selectedProfileTag === tag ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200']"
-                        >
-                          {{ tag }}
-                        </span>
-                      </div>
-                    </div>
-                    <!-- 右侧箭头图标 -->
-                    <div class="text-gray-400 ml-4 shrink-0 transition-transform duration-200" :class="expandedTables[profile.table_name] ? 'rotate-90' : ''">
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-                      </svg>
-                    </div>
-                  </div>
-
-                  <!-- 展开的字段列表 -->
-                  <div v-if="expandedTables[profile.table_name]" class="border-t border-gray-100 p-4 bg-white space-y-2">
-                    <div class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">字段画像定义 (Columns Profile)</div>
-                    
-                    <div v-if="loadingProfileDetails[profile.table_name]" class="text-xs text-gray-400 italic animate-pulse">
-                      正在加载字段画像...
-                    </div>
-                    <div v-else-if="!profile.columns_profile || profile.columns_profile.length === 0" class="text-xs text-gray-400 italic">
-                      暂无字段分析信息
-                    </div>
-                    <div v-else class="border border-gray-100 rounded-xl overflow-hidden">
-                      <table class="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr class="bg-gray-50 border-b border-gray-100 text-gray-400 font-bold uppercase">
-                            <th class="px-4 py-2 border-r border-gray-100 w-1/4">物理字段</th>
-                            <th class="px-4 py-2 border-r border-gray-100 w-1/4">业务术语/中文名</th>
-                            <th class="px-4 py-2">业务含义说明</th>
-                          </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 text-gray-700">
-                          <tr v-for="col in profile.columns_profile" :key="col.name" class="hover:bg-gray-50 bg-white">
-                            <td class="px-4 py-2 border-r border-gray-100 font-mono font-bold">{{ col.name }}</td>
-                            <td class="px-4 py-2 border-r border-gray-100 text-indigo-600 font-medium">{{ col.term || '-' }}</td>
-                            <td class="px-4 py-2 text-gray-500 leading-normal">{{ col.desc || '-' }}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              </template>
-            </div>
-
-            <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end">
-              <button @click="closeTableProfiles" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 text-xs font-bold transition-colors">
-                关闭窗口
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 摸排资产浏览（复用 SQL Lab 表探索器） -->
+    <LabTableExplorer
+      v-if="showProfilesTarget"
+      mode="browse"
+      :source-id="showProfilesTarget.id"
+      :source-name="showProfilesTarget.source_name"
+      :subtitle="profileModalTimeLabel"
+      include-ignored
+      :allow-ignore-toggle="canEdit"
+      @close="closeTableProfiles"
+    />
 
     <ConfirmDialog
       :show="confirmDialog.show"

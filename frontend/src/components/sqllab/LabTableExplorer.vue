@@ -20,14 +20,29 @@ export type ExplorerTableItem = {
   is_favorite?: boolean
   is_pinned?: boolean
   favorite_note?: string | null
+  is_ignored?: boolean
+  is_temporary?: boolean
+  confidence_reason?: string | null
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   sourceId: number | null
-  modelValue: string[]
+  modelValue?: string[]
   recentTables?: string[]
   tableFavorites?: Record<string, TableFavoriteInfo>
-}>()
+  mode?: 'select' | 'browse'
+  sourceName?: string
+  subtitle?: string
+  includeIgnored?: boolean
+  allowIgnoreToggle?: boolean
+  defaultScope?: 'all' | 'profiled'
+}>(), {
+  modelValue: () => [],
+  mode: 'select',
+  includeIgnored: false,
+  allowIgnoreToggle: false,
+  defaultScope: 'profiled',
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', tables: string[]): void
@@ -36,6 +51,7 @@ const emit = defineEmits<{
 
 const { showToast } = useToast()
 
+const isBrowse = computed(() => props.mode === 'browse')
 const searchQ = ref('')
 const scope = ref<'all' | 'profiled' | 'favorites' | 'recent'>('all')
 const selectedTag = ref<string | null>(null)
@@ -54,24 +70,40 @@ const dataPreviewLoading = ref(false)
 const dataPreviewError = ref('')
 const dataPreviewData = ref<{ columns: { name: string }[]; rows: any[][] } | null>(null)
 const draftSelected = ref<string[]>([])
+const togglingIgnore = ref<Record<string, boolean>>({})
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 const previewItem = computed(() => items.value.find(i => i.table_name === previewTable.value))
 
-const scopeOptions = [
+const allScopeOptions = [
   { id: 'all' as const, label: '全部表', icon: TableCellsIcon },
   { id: 'profiled' as const, label: '已摸排', icon: CheckIcon },
   { id: 'favorites' as const, label: '我的收藏', icon: StarIcon },
   { id: 'recent' as const, label: '最近使用', icon: ClockIcon },
 ]
 
+const visibleScopeOptions = computed(() =>
+  isBrowse.value
+    ? allScopeOptions.filter(o => o.id === 'all' || o.id === 'profiled')
+    : allScopeOptions,
+)
+
+const tagsUrl = computed(() =>
+  isBrowse.value && props.sourceId
+    ? `/api/portal/datasource/datasources/${props.sourceId}/table-profiles/tags`
+    : '/api/portal/lab/table-tags',
+)
+
+const listIndentClass = computed(() => (isBrowse.value ? 'ml-4' : 'ml-9'))
+
 const fetchTags = async () => {
   if (!props.sourceId) return
   tagsLoading.value = true
   try {
-    const res = await axios.get('/api/portal/lab/table-tags', { params: { source_id: props.sourceId } })
+    const params = isBrowse.value ? undefined : { source_id: props.sourceId }
+    const res = await axios.get(tagsUrl.value, { params })
     tags.value = Array.isArray(res.data) ? res.data : []
   } catch {
     tags.value = []
@@ -84,20 +116,38 @@ const fetchResults = async () => {
   if (!props.sourceId) return
   loading.value = true
   try {
-    const params: Record<string, any> = {
-      source_id: props.sourceId,
-      scope: scope.value,
-      page: page.value,
-      page_size: pageSize,
+    if (isBrowse.value) {
+      const params: Record<string, any> = {
+        scope: scope.value,
+        page: page.value,
+        page_size: pageSize,
+        include_ignored: props.includeIgnored,
+      }
+      if (searchQ.value.trim()) params.q = searchQ.value.trim()
+      if (selectedTag.value) params.tag = selectedTag.value
+      const res = await axios.get(
+        `/api/portal/datasource/datasources/${props.sourceId}/table-profiles/search`,
+        { params },
+      )
+      items.value = res.data.items || []
+      total.value = res.data.total || 0
+    } else {
+      const params: Record<string, any> = {
+        source_id: props.sourceId,
+        scope: scope.value,
+        page: page.value,
+        page_size: pageSize,
+      }
+      if (searchQ.value.trim()) params.q = searchQ.value.trim()
+      if (selectedTag.value) params.tag = selectedTag.value
+      if (scope.value === 'recent' && props.recentTables?.length) {
+        params.recent = props.recentTables.join(',')
+      }
+      const res = await axios.get('/api/portal/lab/table-search', { params })
+      items.value = res.data.items || []
+      total.value = res.data.total || 0
     }
-    if (searchQ.value.trim()) params.q = searchQ.value.trim()
-    if (selectedTag.value) params.tag = selectedTag.value
-    if (scope.value === 'recent' && props.recentTables?.length) {
-      params.recent = props.recentTables.join(',')
-    }
-    const res = await axios.get('/api/portal/lab/table-search', { params })
-    items.value = res.data.items || []
-    total.value = res.data.total || 0
+
     if (expandedDataTable.value && !items.value.some(i => i.table_name === expandedDataTable.value)) {
       expandedDataTable.value = null
       dataPreviewData.value = null
@@ -105,8 +155,10 @@ const fetchResults = async () => {
     }
     if (previewTable.value && !items.value.some(i => i.table_name === previewTable.value)) {
       previewTable.value = items.value[0]?.table_name || null
+      if (previewTable.value) loadPreviewDetail(previewTable.value)
     } else if (!previewTable.value && items.value.length) {
       previewTable.value = items.value[0]?.table_name ?? null
+      if (previewTable.value) loadPreviewDetail(previewTable.value)
     }
   } catch {
     showToast('搜索表失败', 'error')
@@ -198,6 +250,24 @@ const toggleDataPreview = async (tableName: string) => {
   }
 }
 
+const toggleIgnore = async (item: ExplorerTableItem) => {
+  if (!props.sourceId || !props.allowIgnoreToggle || togglingIgnore.value[item.table_name]) return
+  const nextVal = item.is_ignored ? 0 : 1
+  togglingIgnore.value[item.table_name] = true
+  try {
+    await axios.put(
+      `/api/portal/datasource/datasources/${props.sourceId}/table-profiles/ignore`,
+      { table_name: item.table_name, is_ignored: nextVal },
+    )
+    item.is_ignored = nextVal === 1
+    showToast(`已${nextVal === 1 ? '忽略' : '启用'}表 “${item.table_name}”`, 'success')
+  } catch {
+    showToast('更新忽略状态失败', 'error')
+  } finally {
+    togglingIgnore.value[item.table_name] = false
+  }
+}
+
 const confirmSelection = () => {
   emit('update:modelValue', [...draftSelected.value])
   emit('close')
@@ -212,7 +282,8 @@ const onKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(() => {
-  draftSelected.value = [...props.modelValue]
+  draftSelected.value = [...(props.modelValue || [])]
+  scope.value = isBrowse.value ? props.defaultScope : 'all'
   fetchTags()
   fetchResults()
   document.addEventListener('keydown', onKeydown)
@@ -233,7 +304,11 @@ watch(page, fetchResults)
 </script>
 
 <template>
-  <div class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm" @click.self="emit('close')">
+  <div
+    class="fixed inset-0 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm"
+    :class="isBrowse ? 'z-[9990]' : 'z-[120]'"
+    @click.self="emit('close')"
+  >
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[82vh] flex flex-col overflow-hidden">
       <!-- Header -->
       <div class="px-5 py-3.5 border-b flex items-center justify-between shrink-0 bg-gradient-to-r from-indigo-50/80 to-white">
@@ -242,8 +317,13 @@ watch(page, fetchResults)
             <TableCellsIcon class="w-5 h-5" />
           </div>
           <div>
-            <h3 class="font-bold text-gray-800 text-sm">表探索器</h3>
-            <p class="text-[10px] text-gray-500">关键词搜索 · 标签筛选 · 加入侧栏已选表</p>
+            <h3 class="font-bold text-gray-800 text-sm">
+              {{ isBrowse ? `摸排资产浏览${sourceName ? `：${sourceName}` : ''}` : '表探索器' }}
+            </h3>
+            <p class="text-[10px] text-gray-500">
+              {{ isBrowse ? '关键词搜索 · 标签筛选 · 字段画像 · 数据预览' : '关键词搜索 · 标签筛选 · 加入侧栏已选表' }}
+            </p>
+            <p v-if="isBrowse && subtitle" class="text-[10px] text-indigo-600/80 font-medium mt-0.5">{{ subtitle }}</p>
           </div>
         </div>
         <button type="button" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg" @click="emit('close')">
@@ -258,7 +338,7 @@ watch(page, fetchResults)
           <input
             v-model="searchQ"
             type="text"
-            placeholder="搜索表名 / 中文术语 / 描述 / 标签 / 个人备注..."
+            :placeholder="isBrowse ? '搜索表名 / 中文术语 / 描述 / 标签...' : '搜索表名 / 中文术语 / 描述 / 标签 / 个人备注...'"
             class="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 outline-none"
             @input="scheduleSearch"
           />
@@ -270,7 +350,7 @@ watch(page, fetchResults)
         <div class="w-44 shrink-0 border-r bg-gray-50/80 flex flex-col overflow-y-auto custom-scrollbar">
           <div class="p-2 space-y-0.5">
             <button
-              v-for="opt in scopeOptions"
+              v-for="opt in visibleScopeOptions"
               :key="opt.id"
               type="button"
               class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold transition-colors"
@@ -317,7 +397,7 @@ watch(page, fetchResults)
 
           <div class="flex-1 overflow-y-auto custom-scrollbar">
             <div v-if="loading" class="py-16 text-center text-gray-400 text-sm">搜索中...</div>
-            <div v-else-if="scope === 'recent' && !recentTables?.length" class="py-16 text-center text-gray-400 text-xs px-6">
+            <div v-else-if="!isBrowse && scope === 'recent' && !recentTables?.length" class="py-16 text-center text-gray-400 text-xs px-6">
               暂无最近使用的表<br />从探索器或侧栏选中表后会记录在这里
             </div>
             <div v-else-if="!items.length" class="py-16 text-center text-gray-400 text-xs">无匹配结果，换个关键词试试</div>
@@ -326,7 +406,10 @@ watch(page, fetchResults)
               v-for="item in items"
               :key="item.table_name"
               class="border-b"
-              :class="previewTable === item.table_name ? 'bg-indigo-50/40' : ''"
+              :class="[
+                previewTable === item.table_name ? 'bg-indigo-50/40' : '',
+                item.is_ignored ? 'opacity-70' : '',
+              ]"
             >
               <div
                 class="px-4 py-2.5 cursor-pointer transition-colors flex items-start gap-3 group"
@@ -334,6 +417,7 @@ watch(page, fetchResults)
                 @click="onRowClick(item)"
               >
                 <button
+                  v-if="!isBrowse"
                   type="button"
                   class="mt-0.5 shrink-0 w-6 h-6 rounded-md border flex items-center justify-center transition-colors"
                   :class="isInDraft(item.table_name) ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-200 text-gray-400 hover:border-indigo-400 hover:text-indigo-600'"
@@ -346,9 +430,25 @@ watch(page, fetchResults)
                 <div class="min-w-0 flex-1">
                   <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0 flex-1 flex items-center gap-1.5 flex-wrap">
+                      <button
+                        v-if="isBrowse && allowIgnoreToggle"
+                        type="button"
+                        class="relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200"
+                        :class="item.is_ignored ? 'bg-red-500' : 'bg-emerald-500'"
+                        :disabled="togglingIgnore[item.table_name]"
+                        :title="item.is_ignored ? '已忽略，点击恢复' : '已启用，点击忽略'"
+                        @click.stop="toggleIgnore(item)"
+                      >
+                        <span
+                          class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow transition duration-200"
+                          :class="item.is_ignored ? 'translate-x-3' : 'translate-x-0'"
+                        />
+                      </button>
                       <span class="text-sm font-mono font-bold text-gray-800 break-all">{{ item.table_name }}</span>
-                      <span class="text-[9px] px-1 py-0.5 rounded font-black shrink-0" :class="item.table_type === 'VIEW' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'">{{ item.table_type || 'TABLE' }}</span>
+                      <span class="text-[9px] px-1 py-0.5 rounded font-black shrink-0" :class="(item.table_type || '').toUpperCase() === 'VIEW' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'">{{ item.table_type || 'TABLE' }}</span>
                       <span v-if="item.confidence_score != null" class="text-[9px] px-1 py-0.5 rounded font-bold bg-green-100 text-green-700 shrink-0">{{ item.confidence_score }}%</span>
+                      <span v-if="item.status === 3" class="text-[9px] px-1 py-0.5 rounded font-bold bg-red-100 text-red-600 shrink-0">分析失败</span>
+                      <span v-if="item.is_temporary" class="text-[9px] px-1 py-0.5 rounded font-bold bg-amber-100 text-amber-800 shrink-0">临时表</span>
                       <StarSolidIcon v-if="item.is_favorite" class="w-3.5 h-3.5 text-amber-500 shrink-0" />
                     </div>
                     <button
@@ -366,13 +466,14 @@ watch(page, fetchResults)
                   </div>
                   <div v-if="item.ai_term" class="text-xs text-indigo-600 font-semibold mt-0.5 break-words">{{ item.ai_term }}</div>
                   <div v-if="item.ai_description" class="text-[11px] text-gray-500 mt-0.5 break-words leading-relaxed">{{ item.ai_description }}</div>
-                  <div v-if="item.favorite_note" class="text-[11px] text-blue-600 mt-0.5 break-words">📝 {{ item.favorite_note }}</div>
+                  <div v-if="item.confidence_reason && isBrowse" class="text-[10px] text-gray-400 mt-0.5 break-words">原因：{{ item.confidence_reason }}</div>
+                  <div v-if="item.favorite_note && !isBrowse" class="text-[11px] text-blue-600 mt-0.5 break-words">📝 {{ item.favorite_note }}</div>
                 </div>
               </div>
 
               <div
                 v-if="expandedDataTable === item.table_name"
-                class="px-4 pb-3 ml-9 mr-4"
+                :class="['px-4 pb-3 mr-4', listIndentClass]"
                 @click.stop
               >
                 <div v-if="dataPreviewLoading" class="py-4 text-center text-gray-400 text-xs">
@@ -418,7 +519,7 @@ watch(page, fetchResults)
         </div>
 
         <!-- Preview panel -->
-        <div class="w-72 shrink-0 border-l bg-gray-50/50 flex flex-col overflow-hidden">
+        <div class="shrink-0 border-l bg-gray-50/50 flex flex-col overflow-hidden" :class="isBrowse ? 'w-80' : 'w-72'">
           <div class="px-3 py-2 border-b text-[11px] font-bold text-gray-500 shrink-0">表预览</div>
           <div v-if="!previewTable" class="flex-1 flex items-center justify-center text-gray-400 text-xs px-4 text-center">点击左侧表查看详情</div>
           <div v-else class="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
@@ -432,23 +533,46 @@ watch(page, fetchResults)
             </template>
             <div v-if="previewLoading" class="text-[11px] text-gray-400 italic">加载字段...</div>
             <div v-else-if="previewDetail?.columns_profile?.length" class="mt-2">
-              <div class="text-[10px] font-bold text-gray-400 mb-1">字段 ({{ previewDetail.columns_profile.length }})</div>
-              <div
-                v-for="col in previewDetail.columns_profile.slice(0, 25)"
-                :key="col.name || col.column_name"
-                class="text-[10px] py-0.5 border-b border-gray-100 last:border-0"
-              >
-                <span class="font-mono text-gray-700">{{ col.name || col.column_name }}</span>
-                <span v-if="col.term" class="text-indigo-500 ml-1">{{ col.term }}</span>
+              <div class="text-[10px] font-bold text-gray-400 mb-1">字段画像 ({{ previewDetail.columns_profile.length }})</div>
+              <div v-if="isBrowse" class="border border-gray-100 rounded-lg overflow-hidden">
+                <table class="w-full text-left text-[10px]">
+                  <thead class="bg-gray-50 text-gray-400">
+                    <tr>
+                      <th class="px-2 py-1 font-bold">字段</th>
+                      <th class="px-2 py-1 font-bold">术语</th>
+                      <th class="px-2 py-1 font-bold">说明</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-50">
+                    <tr v-for="col in previewDetail.columns_profile" :key="col.name || col.column_name">
+                      <td class="px-2 py-1 font-mono text-gray-700">{{ col.name || col.column_name }}</td>
+                      <td class="px-2 py-1 text-indigo-600">{{ col.term || '-' }}</td>
+                      <td class="px-2 py-1 text-gray-500">{{ col.desc || '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              <div v-if="previewDetail.columns_profile.length > 25" class="text-[10px] text-gray-400 mt-1">还有 {{ previewDetail.columns_profile.length - 25 }} 个字段...</div>
+              <template v-else>
+                <div
+                  v-for="col in previewDetail.columns_profile.slice(0, 25)"
+                  :key="col.name || col.column_name"
+                  class="text-[10px] py-0.5 border-b border-gray-100 last:border-0"
+                >
+                  <span class="font-mono text-gray-700">{{ col.name || col.column_name }}</span>
+                  <span v-if="col.term" class="text-indigo-500 ml-1">{{ col.term }}</span>
+                </div>
+                <div v-if="previewDetail.columns_profile.length > 25" class="text-[10px] text-gray-400 mt-1">还有 {{ previewDetail.columns_profile.length - 25 }} 个字段...</div>
+              </template>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Footer -->
-      <div class="px-5 py-3 border-t bg-white shrink-0 flex items-center gap-3">
+      <div v-if="isBrowse" class="px-5 py-3 border-t bg-white shrink-0 flex justify-end">
+        <button type="button" class="px-5 py-2 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm" @click="emit('close')">关闭</button>
+      </div>
+      <div v-else class="px-5 py-3 border-t bg-white shrink-0 flex items-center gap-3">
         <div class="flex-1 min-w-0">
           <div class="flex items-center justify-between gap-2 mb-1">
             <span class="text-[10px] text-gray-400">已选 {{ draftSelected.length }} 张表（同步到侧栏勾选）</span>

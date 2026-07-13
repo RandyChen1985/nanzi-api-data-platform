@@ -5,7 +5,7 @@ import {
   CircleStackIcon, SparklesIcon, XMarkIcon, CubeIcon,
   ChevronRightIcon, ChevronUpIcon, ChevronDownIcon, QuestionMarkCircleIcon, 
   ArrowsPointingOutIcon, ArrowsPointingInIcon, ExclamationTriangleIcon, BeakerIcon,
-  ClipboardDocumentIcon, PlayIcon,
+  ClipboardDocumentIcon, PlayIcon, TableCellsIcon,
 } from '@heroicons/vue/24/outline'
 
 import axios from '../utils/axios'
@@ -28,6 +28,7 @@ import LabAiFeedbackBar from '../components/sqllab/LabAiFeedbackBar.vue'
 import LabPublishSuccessModal from '../components/sqllab/LabPublishSuccessModal.vue'
 import LabApiTestModal from '../components/sqllab/LabApiTestModal.vue'
 import LabTableExplorer from '../components/sqllab/LabTableExplorer.vue'
+import LabResultDataView from '../components/sqllab/LabResultDataView.vue'
 import Tooltip from '../components/common/Tooltip.vue'
 import { formatLabSqlSafe } from '../utils/formatLabSql'
 
@@ -73,10 +74,26 @@ const showTableDetailModal = ref(false)
 const detailTable = ref('')
 const detailLoading = ref(false)
 const detailColumns = ref<{name: string, type: string, comment: string}[]>([])
-const detailActiveTab = ref<'structure' | 'preview'>('structure')
+const detailActiveTab = ref<'structure' | 'preview'>('preview')
 const detailPreviewData = ref<any>(null)
 const detailPreviewLoading = ref(false)
 const detailPreviewError = ref('')
+const detailPreviewLimit = ref(50)
+const detailPreviewOffset = ref(0)
+const detailTotalCount = ref<number | null>(null)
+const detailCompareSnapshot = ref<PreviewResult | null>(null)
+const showDetailExportPanel = ref(false)
+const showDetailExportConfirm = ref(false)
+const analysisOverride = ref<{ sql: string; data: any[][]; columns: { name: string; type: string }[] } | null>(null)
+
+const detailPreviewSql = computed(() => `SELECT * FROM ${detailTable.value}`)
+const analysisChatQuery = computed(() => analysisOverride.value?.sql ?? currentTab.value?.sql)
+const analysisChatData = computed(() => analysisOverride.value?.data ?? currentTab.value?.result?.rows)
+const analysisChatColumns = computed(() => analysisOverride.value?.columns ?? currentTab.value?.result?.columns)
+
+watch(showAnalysisChat, (open) => {
+  if (!open) analysisOverride.value = null
+})
 
 const setLabMode = (mode: 'api' | 'analyst') => {
   labMode.value = mode
@@ -629,6 +646,62 @@ const fetchTableProfileDetail = async (tableName: string) => {
     // 单表详情加载失败时保留摘要信息
   }
 }
+
+type DetailMergedColumn = {
+  name: string
+  type: string
+  comment: string
+  term?: string
+  desc?: string
+  fromProfile?: boolean
+}
+
+const detailTableProfile = computed(() =>
+  detailTable.value ? tableProfilesMap.value[detailTable.value] : null
+)
+
+const detailMergedColumns = computed((): DetailMergedColumn[] => {
+  const physical = detailColumns.value
+  const profileCols = detailTableProfile.value?.columns_profile as
+    | Array<{ name: string; term?: string; desc?: string }>
+    | undefined
+
+  if (!profileCols?.length) {
+    return physical.map(col => ({ ...col }))
+  }
+
+  const profileMap = Object.fromEntries(profileCols.map(c => [c.name, c]))
+
+  if (physical.length > 0) {
+    return physical.map(col => ({
+      name: col.name,
+      type: col.type,
+      comment: col.comment,
+      term: profileMap[col.name]?.term,
+      desc: profileMap[col.name]?.desc,
+      fromProfile: !!(profileMap[col.name]?.term || profileMap[col.name]?.desc),
+    }))
+  }
+
+  return profileCols.map(c => ({
+    name: c.name,
+    type: '',
+    comment: '',
+    term: c.term,
+    desc: c.desc,
+    fromProfile: true,
+  }))
+})
+
+const detailHasProfileInfo = computed(() =>
+  !!detailTableProfile.value?.columns_profile?.length
+  || !!detailTableProfile.value?.ai_term
+  || !!detailTableProfile.value?.ai_description
+)
+
+const detailHasProfileTerms = computed(() =>
+  detailMergedColumns.value.some(c => c.term)
+)
 
 const fetchAvailableTables = async () => {
   if (!selectedSourceId.value) return
@@ -1329,16 +1402,28 @@ const openTableAiSuggestion = async (table: string) => {
 
 const openTableDetail = async (table: string) => {
   detailTable.value = table
-  detailActiveTab.value = 'structure'
+  detailActiveTab.value = 'preview'
   detailPreviewData.value = null
   detailPreviewError.value = ''
+  detailPreviewOffset.value = 0
+  detailTotalCount.value = null
+  detailCompareSnapshot.value = null
   showTableDetailModal.value = true
   detailLoading.value = true
+
   const source = dataSources.value.find(ds => ds.id === selectedSourceId.value)
-  try {
-    const colRes = await axios.post('/api/portal/meta/datasource/columns', { data_source: source?.source_name, table_name: table })
+  const colPromise = axios.post('/api/portal/meta/datasource/columns', {
+    data_source: source?.source_name,
+    table_name: table,
+  }).then((colRes) => {
     detailColumns.value = colRes.data.columns
-  } finally { detailLoading.value = false }
+  }).catch(() => {
+    detailColumns.value = []
+  }).finally(() => {
+    detailLoading.value = false
+  })
+
+  await Promise.all([colPromise, fetchTablePreview(true), fetchTableProfileDetail(table)])
 }
 
 const handleTableProfileGenerate = async (table: string) => {
@@ -1394,26 +1479,106 @@ const handleTableProfileGenerate = async (table: string) => {
   }
 }
 
-const fetchTablePreview = async () => {
+const fetchTablePreview = async (force = false) => {
   if (!detailTable.value || !selectedSourceId.value) return
   detailActiveTab.value = 'preview'
-  if (detailPreviewData.value) return // Already loaded
+  if (!force && detailPreviewData.value) return
 
   detailPreviewLoading.value = true
   detailPreviewError.value = ''
   try {
-    const res = await axios.post('/api/portal/lab/preview', { 
-      source_id: selectedSourceId.value, 
-      sql: `SELECT * FROM ${detailTable.value}`,
-      params: {}, 
-      limit: 50 
+    const res = await axios.post('/api/portal/lab/preview', {
+      source_id: selectedSourceId.value,
+      sql: detailPreviewSql.value,
+      params: {},
+      limit: detailPreviewLimit.value,
+      offset: detailPreviewOffset.value,
+      include_total: true,
     })
     detailPreviewData.value = res.data
+    detailTotalCount.value = res.data.total_count ?? null
   } catch (e: any) {
-    detailPreviewError.value = e.response?.data?.message || e.message
+    detailPreviewError.value = e.response?.data?.message || e.response?.data?.detail || e.message
+    detailPreviewData.value = null
   } finally {
     detailPreviewLoading.value = false
   }
+}
+
+const handleDetailPageChange = (offset: number) => {
+  detailPreviewOffset.value = offset
+  fetchTablePreview(true)
+}
+
+const clearDetailPreview = () => {
+  detailPreviewData.value = null
+  detailPreviewError.value = ''
+  detailPreviewOffset.value = 0
+  detailTotalCount.value = null
+  detailCompareSnapshot.value = null
+}
+
+const pinDetailBaseline = () => {
+  if (!detailPreviewData.value) return
+  if (detailCompareSnapshot.value) {
+    detailCompareSnapshot.value = null
+    showToast('已清除对比基准', 'info')
+  } else {
+    detailCompareSnapshot.value = JSON.parse(JSON.stringify(detailPreviewData.value))
+    showToast('已固定当前结果为对比基准', 'success')
+  }
+}
+
+const exportDetailToExcel = () => {
+  if (!detailPreviewData.value) return
+  if (!hasPerm('element:lab:export')) return showToast('暂无导出权限', 'error')
+  showDetailExportConfirm.value = true
+}
+
+const executeDetailExport = async () => {
+  showDetailExportConfirm.value = false
+  if (!detailPreviewData.value) return
+  const dataToExport = detailPreviewData.value.rows.slice(0, 5000)
+  try {
+    const wb = XLSX.utils.book_new()
+    const source = dataSources.value.find(ds => ds.id === selectedSourceId.value)
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['数据源', source?.source_name],
+      ['表', detailTable.value],
+      ['SQL', detailPreviewSql.value],
+    ]), '说明')
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      detailPreviewData.value.columns.map((c: { name: string }) => c.name),
+      ...dataToExport,
+    ]), '数据')
+    saveAs(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })]), `table_${detailTable.value}_${Date.now()}.xlsx`)
+    await axios.post('/api/portal/audit/logs/custom_export', {
+      sql: detailPreviewSql.value,
+      row_count: dataToExport.length,
+      data_source: source?.source_name || '',
+      format: 'xlsx',
+    })
+    showToast('导出成功', 'success')
+  } catch {
+    showToast('导出失败', 'error')
+  }
+}
+
+const openDetailAiAnalysis = () => {
+  if (!hasPerm('element:lab:analysis')) return showToast('暂无 AI 分析权限', 'error')
+  if (!detailPreviewData.value) return
+  analysisOverride.value = {
+    sql: detailPreviewSql.value,
+    data: detailPreviewData.value.rows,
+    columns: detailPreviewData.value.columns,
+  }
+  showAnalysisChat.value = true
+}
+
+const openDetailExportPanel = () => {
+  if (!selectedSourceId.value || !detailTable.value) return
+  if (!hasPerm('element:lab:export')) return showToast('暂无导出权限', 'error')
+  showDetailExportPanel.value = true
 }
 
 const exportToExcel = async () => {
@@ -1922,7 +2087,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <AnalysisChat :is-open="showAnalysisChat" :initial-query="currentTab?.sql" :data="currentTab?.result?.rows" :columns="currentTab?.result?.columns" @close="showAnalysisChat = false" @save-session="saveAnalysisSession" />
+    <AnalysisChat :is-open="showAnalysisChat" :initial-query="analysisChatQuery" :data="analysisChatData" :columns="analysisChatColumns" @close="showAnalysisChat = false" @save-session="saveAnalysisSession" />
 
     <LabSavedQueriesPanel v-if="showSavedQueries" :source-id="selectedSourceId" :lab-mode="labMode" :current-sql="currentTab?.sql || ''" :test-params="currentTab?.testParams || {}" @load="loadSavedQuery" @close="showSavedQueries = false" />
     <LabTableExplorer
@@ -1940,6 +2105,13 @@ onMounted(() => {
       :sql="currentTab?.sql || ''"
       :test-params="currentTab?.testParams || {}"
       @close="showExportPanel = false"
+    />
+    <LabExportPanel
+      v-if="showDetailExportPanel"
+      :source-id="selectedSourceId"
+      :sql="detailPreviewSql"
+      :test-params="{}"
+      @close="showDetailExportPanel = false"
     />
     <LabSqlDiff v-if="showSqlDiff" :original="sqlDiffData.original" :modified="sqlDiffData.modified" @apply="applySqlDiff" @close="showSqlDiff = false" />
 
@@ -2144,6 +2316,24 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="showDetailExportConfirm" class="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+        <div class="p-6 text-center">
+          <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><ArrowsPointingOutIcon class="w-6 h-6 text-green-600" /></div>
+          <h3 class="text-lg font-bold mb-2">确认导出表预览?</h3>
+          <div class="bg-gray-50 rounded-xl p-4 mb-6 text-sm space-y-2">
+            <div class="flex justify-between"><span class="text-gray-500">表名</span><span class="font-mono font-bold">{{ detailTable }}</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">预计行数</span><span class="font-mono font-bold">{{ detailPreviewData?.rows.length }} 行</span></div>
+            <div class="flex justify-between"><span class="text-gray-500">导出格式</span><span class="font-bold text-green-600">Excel (.xlsx)</span></div>
+          </div>
+          <div class="flex gap-3">
+            <button @click="showDetailExportConfirm = false" class="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-lg hover:bg-gray-200">取消</button>
+            <button @click="executeDetailExport" class="flex-1 py-2.5 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-md">开始导出</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showSuggestionModal" class="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm" @click.self="showSuggestionModal = false">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[88vh] overflow-hidden animate-in zoom-in duration-300 border border-gray-100">
         <!-- Header -->
@@ -2265,90 +2455,144 @@ onMounted(() => {
         </div>
 
         <!-- Tab Header -->
-        <div class="px-6 bg-white border-b flex gap-8">
-          <button 
-            @click="detailActiveTab = 'structure'"
-            :class="detailActiveTab === 'structure' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-            class="py-4 border-b-2 font-bold text-sm transition-all"
-          >
-            表结构 ({{ detailColumns.length }})
-          </button>
-          <button 
-            @click="fetchTablePreview"
-            :class="detailActiveTab === 'preview' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
-            class="py-4 border-b-2 font-bold text-sm transition-all flex items-center gap-2"
-          >
-            数据预览
-            <div v-if="detailPreviewLoading" class="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-          </button>
+        <div class="px-6 bg-white border-b flex items-center justify-between gap-4">
+          <div class="flex gap-8">
+            <button
+              @click="detailActiveTab = 'structure'"
+              :class="detailActiveTab === 'structure' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="py-4 border-b-2 font-bold text-sm transition-all"
+            >
+              表结构 ({{ detailMergedColumns.length }})
+            </button>
+            <button
+              @click="() => fetchTablePreview()"
+              :class="detailActiveTab === 'preview' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'"
+              class="py-4 border-b-2 font-bold text-sm transition-all flex items-center gap-2"
+            >
+              数据预览
+              <div v-if="detailPreviewLoading" class="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            </button>
+          </div>
+          <div v-if="detailActiveTab === 'preview' && detailPreviewData" class="flex items-center gap-2 shrink-0 py-2">
+            <Tooltip text="将当前结果设为对比基准" position="bottom" align="end">
+              <button @click="pinDetailBaseline" class="flex items-center px-3 py-1.5 bg-violet-50 text-violet-700 rounded-lg text-xs font-bold border border-violet-100 hover:bg-violet-100">
+                {{ detailCompareSnapshot ? '清除基准' : '固定基准' }}
+              </button>
+            </Tooltip>
+            <Tooltip text="基于当前结果集进行深度 AI 数据洞察" position="bottom" align="end">
+              <button
+                v-if="labMode === 'analyst' && isAiEnabled && hasPerm('element:lab:analysis')"
+                @click="openDetailAiAnalysis"
+                class="flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold border border-indigo-100 hover:bg-indigo-100 transition-all"
+              >
+                <SparklesIcon class="w-3.5 h-3.5 mr-1.5" /> AI 智能分析
+              </button>
+            </Tooltip>
+            <Tooltip text="将当前结果导出为 Excel 文件（预览数据）" position="bottom" align="end">
+              <button
+                v-if="labMode === 'analyst' && hasPerm('element:lab:export')"
+                @click="exportDetailToExcel"
+                class="flex items-center px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-bold border border-green-100 hover:bg-green-100 transition-all"
+              >
+                <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4 4m4-4v12" /></svg>
+                导出 Excel
+              </button>
+            </Tooltip>
+            <Tooltip text="后端异步全量导出（最多 5 万行）" position="bottom" align="end">
+              <button
+                v-if="hasPerm('element:lab:export')"
+                @click="openDetailExportPanel"
+                class="flex items-center px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold border border-emerald-100 hover:bg-emerald-100 transition-all"
+              >
+                异步导出
+              </button>
+            </Tooltip>
+          </div>
         </div>
 
-        <div class="flex-1 overflow-auto p-6 bg-gray-50/30 custom-scrollbar">
+        <div class="flex-1 min-h-0 flex flex-col overflow-hidden bg-gray-50/30">
           <!-- Structure View -->
-          <div v-if="detailActiveTab === 'structure'">
+          <div v-if="detailActiveTab === 'structure'" class="flex-1 overflow-auto p-6 custom-scrollbar">
             <div v-if="detailLoading" class="flex flex-col items-center justify-center py-20 space-y-4">
               <div class="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
               <p class="text-sm text-gray-400 italic">正在读取表结构...</p>
             </div>
-            <table v-else class="min-w-full divide-y divide-gray-200 bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-              <thead class="bg-gray-50">
-                <tr>
-                  <th class="px-6 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">字段名</th>
-                  <th class="px-6 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">物理类型</th>
-                  <th class="px-6 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">描述/注释</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                <tr v-for="col in detailColumns" :key="col.name" class="hover:bg-indigo-50/30 transition-colors">
-                  <td class="px-6 py-4 text-sm font-bold text-gray-900 font-mono">{{ col.name }}</td>
-                  <td class="px-6 py-4 text-xs text-indigo-600 font-medium">
-                    <span class="px-2 py-0.5 bg-indigo-50 rounded-full border border-indigo-100">{{ col.type }}</span>
-                  </td>
-                  <td class="px-6 py-4 text-sm text-gray-500">{{ col.comment || '-' }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <template v-else>
+              <div
+                v-if="detailTableProfile?.ai_term || detailTableProfile?.ai_description"
+                class="mb-4 p-4 bg-indigo-50/60 border border-indigo-100 rounded-2xl space-y-2"
+              >
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-[10px] font-black text-indigo-500 uppercase tracking-widest">摸排画像</span>
+                  <span
+                    v-if="detailTableProfile?.confidence_score != null"
+                    class="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                    :class="detailTableProfile.confidence_score >= 80 ? 'bg-green-100 text-green-700' : detailTableProfile.confidence_score >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'"
+                  >置信度 {{ detailTableProfile.confidence_score }}%</span>
+                  <span
+                    v-for="tag in (detailTableProfile?.ai_tags || [])"
+                    :key="tag"
+                    class="text-[10px] px-2 py-0.5 bg-white border border-indigo-100 rounded-full text-gray-600"
+                  >{{ tag }}</span>
+                </div>
+                <div v-if="detailTableProfile?.ai_term" class="text-sm font-bold text-gray-900">{{ detailTableProfile.ai_term }}</div>
+                <div v-if="detailTableProfile?.ai_description" class="text-sm text-gray-600 leading-relaxed">{{ detailTableProfile.ai_description }}</div>
+              </div>
+              <table class="min-w-full divide-y divide-gray-200 bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">字段名</th>
+                    <th v-if="detailHasProfileTerms" class="px-6 py-3 text-left text-[10px] font-black text-indigo-400 uppercase tracking-widest">业务术语</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">物理类型</th>
+                    <th class="px-6 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                      描述/注释
+                      <span v-if="detailHasProfileInfo" class="ml-1 text-indigo-400 normal-case font-medium">（优先摸排）</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <tr v-for="col in detailMergedColumns" :key="col.name" class="hover:bg-indigo-50/30 transition-colors">
+                    <td class="px-6 py-4 text-sm font-bold text-gray-900 font-mono">{{ col.name }}</td>
+                    <td v-if="detailHasProfileTerms" class="px-6 py-4 text-sm text-indigo-600 font-medium">
+                      {{ col.term || '-' }}
+                    </td>
+                    <td class="px-6 py-4 text-xs text-indigo-600 font-medium">
+                      <span v-if="col.type" class="px-2 py-0.5 bg-indigo-50 rounded-full border border-indigo-100">{{ col.type }}</span>
+                      <span v-else class="text-gray-300">-</span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-600">
+                      <span :class="col.fromProfile ? 'text-gray-800' : 'text-gray-500'">{{ col.desc || col.comment || '-' }}</span>
+                      <span
+                        v-if="col.desc && col.comment && col.comment !== col.desc"
+                        class="block text-[10px] text-gray-400 mt-1"
+                      >库注释: {{ col.comment }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
           </div>
 
           <!-- Preview View -->
-          <div v-else class="h-full">
-            <div v-if="detailPreviewLoading" class="flex flex-col items-center justify-center py-20 space-y-4">
+          <div v-else class="flex-1 min-h-0 flex flex-col bg-white">
+            <div v-if="detailPreviewLoading" class="flex flex-col items-center justify-center flex-1 space-y-4">
               <div class="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-              <p class="text-sm text-gray-400 italic">正在查询前 50 条数据...</p>
+              <p class="text-sm text-gray-400 italic">正在查询前 {{ detailPreviewLimit }} 条数据...</p>
             </div>
-            <div v-else-if="detailPreviewError" class="p-6 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-sm flex items-center gap-3">
-              <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              {{ detailPreviewError }}
-            </div>
-            <div v-else-if="detailPreviewData" class="space-y-4">
-              <div class="flex justify-between items-center mb-2">
-                <span class="text-xs font-bold text-gray-400">查询结果预览 (Limit 50)</span>
-                <span class="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-bold">SUCCESS</span>
-              </div>
-              <div class="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-                <div class="overflow-x-auto custom-scrollbar">
-                  <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                      <tr>
-                        <th v-for="col in detailPreviewData.columns" :key="col.name" class="px-4 py-3 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">
-                          {{ col.name }}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                      <tr v-for="(row, rIdx) in detailPreviewData.rows" :key="rIdx" class="hover:bg-gray-50 transition-colors">
-                        <td v-for="(cell, cIdx) in row" :key="cIdx" class="px-4 py-2.5 text-xs text-gray-600 truncate max-w-[200px]" :title="String(cell)">
-                          {{ cell === null ? 'NULL' : cell }}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div v-if="detailPreviewData.rows.length === 0" class="py-20 text-center text-gray-400 italic text-sm">
-                  表中暂无数据
-                </div>
-              </div>
-            </div>
+            <LabResultDataView
+              v-else
+              :result="detailPreviewData"
+              :error="detailPreviewError"
+              :total-count="detailTotalCount"
+              :preview-limit="detailPreviewLimit"
+              :preview-offset="detailPreviewOffset"
+              :compare-snapshot="detailCompareSnapshot"
+              empty-text="表中暂无数据"
+              class="flex-1 min-h-0"
+              @clear="clearDetailPreview"
+              @page-change="handleDetailPageChange"
+              @clear-baseline="pinDetailBaseline"
+            />
           </div>
         </div>
         
