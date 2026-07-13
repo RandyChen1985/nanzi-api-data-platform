@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from '@/utils/axios'
 import { useToast } from '@/composables/useToast'
 import {
@@ -114,10 +114,18 @@ const DATA_PREVIEW_LIMIT = 10
 const dataPreviewData = ref<{ columns: { name: string }[]; rows: any[][]; total_count?: number | null } | null>(null)
 const draftSelected = ref<string[]>([])
 const togglingIgnore = ref<Record<string, boolean>>({})
+const resultsListRef = ref<HTMLElement | null>(null)
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+const rowSerial = (idx: number) => (page.value - 1) * pageSize + idx + 1
+
+const scrollResultsToTop = () => {
+  nextTick(() => {
+    if (resultsListRef.value) resultsListRef.value.scrollTop = 0
+  })
+}
 const previewItem = computed(() => items.value.find(i => i.table_name === previewTable.value))
 
 const allScopeOptions = [
@@ -214,6 +222,7 @@ const fetchResults = async () => {
     total.value = 0
   } finally {
     loading.value = false
+    scrollResultsToTop()
   }
 }
 
@@ -454,7 +463,7 @@ watch(page, fetchResults)
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto custom-scrollbar">
+          <div ref="resultsListRef" class="flex-1 overflow-y-auto custom-scrollbar">
             <div v-if="loading" class="py-16 text-center text-gray-400 text-sm">搜索中...</div>
             <div v-else-if="!isBrowse && scope === 'recent' && !recentTables?.length" class="py-16 text-center text-gray-400 text-xs px-6">
               暂无最近使用的表<br />从探索器或侧栏选中表后会记录在这里
@@ -462,7 +471,7 @@ watch(page, fetchResults)
             <div v-else-if="!items.length" class="py-16 text-center text-gray-400 text-xs">无匹配结果，换个关键词试试</div>
 
             <div
-              v-for="item in items"
+              v-for="(item, idx) in items"
               :key="item.table_name"
               class="border-b"
               :class="[
@@ -471,10 +480,14 @@ watch(page, fetchResults)
               ]"
             >
               <div
-                class="px-4 py-2.5 cursor-pointer transition-colors flex items-start gap-3 group"
+                class="px-4 py-2.5 cursor-pointer transition-colors flex items-start gap-2 group"
                 :class="previewTable === item.table_name ? 'border-l-2 border-l-indigo-500' : 'hover:bg-gray-50 border-l-2 border-l-transparent'"
                 @click="onRowClick(item)"
               >
+                <span
+                  class="shrink-0 w-8 text-right text-[10px] font-semibold text-gray-400 tabular-nums pt-1"
+                  :title="`第 ${rowSerial(idx)} 条`"
+                >{{ rowSerial(idx) }}</span>
                 <button
                   v-if="!isBrowse"
                   type="button"
