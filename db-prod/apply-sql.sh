@@ -1,6 +1,11 @@
 #!/bin/bash
 # Wrapper to run apply_sql.py with explicit connection parameters.
 
+# 如果不是用 bash 运行的，则使用 bash 重新执行此脚本以支持 bash 特性（如 read -s 和数组）
+if [ -z "$BASH_VERSION" ]; then
+    exec bash "$0" "$@"
+fi
+
 cd "$(dirname "$0")/.."
 
 DEFAULT_ADMIN_API_KEY="YZnxdJLZ0Hwf7IpHXHkYDZYI-CUsTafRjGeANklakuA"
