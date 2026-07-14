@@ -36,6 +36,7 @@
 | :------------------------ | :----------------------- | :--------------------------------------- | :----- | :----------- |
 | `/api/portal/auth`        | `test_auth.py`           | 登录验证、当前用户信息获取、权限校验 (修复角色继承) | ✅ 通过 | 2026-01-28   |
 | `/api/portal/management`  | `test_management.py`     | 用户管理 (CRUD)、状态控制、权限分级      | ✅ 通过 | 2026-01-28   |
+| `/api/portal/management/users/{id}/reset-key` | `test_management.py` | 重置用户 API Key (管理员操作，修复 405 路由错误) | ✅ 通过 | 2026-07-14   |
 | `/api/portal/dashboard`   | `test_dashboard.py`      | 统计数据获取、趋势分析、最近活动、**在线用户详情 (Admin Only)** | ✅ 通过 | 2026-01-30   |
 | `/api/portal/audit`       | `test_audit_enhanced.py` | 增强审计日志、高级过滤、导出功能         | ✅ 通过 | 2026-01-28   |
 | `/api/portal/logs/access` | `test_access_logs.py`    | 接口访问日志查询、普通用户权限过滤       | ✅ 通过 | 2026-02-02   |

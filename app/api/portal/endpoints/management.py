@@ -791,8 +791,8 @@ async def delete_user(user_id: int, user: dict = Depends(require_permission("ele
             return {"message": "User deleted successfully"}
 
 
-@router.post("/users/{user_id}/password/reset")
-async def reset_user_password(user_id: int, user: dict = Depends(require_permission("element:user:manage"))):
+@router.post("/users/{user_id}/reset-key")
+async def reset_user_api_key(user_id: int, user: dict = Depends(require_permission("element:user:manage"))):
     """
     Reset user's API Key without changing user info.
     Admin only.

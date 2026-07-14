@@ -245,3 +245,30 @@ async def test_pagination(client: AsyncClient, admin_api_key: str):
         ids1 = {u["id"] for u in data1["items"]}
         ids2 = {u["id"] for u in data2["items"]}
         assert ids1 != ids2
+
+
+@pytest.mark.asyncio
+async def test_reset_user_api_key(client: AsyncClient, admin_api_key: str):
+    """Test resetting user api key"""
+    # Create user first
+    import time
+    unique_username = f"reset_key_{int(time.time())}"
+    create_response = await client.post(
+        "/api/portal/management/users",
+        headers={"X-API-Key": admin_api_key},
+        json={"user_name": unique_username, "role": "user"}
+    )
+    assert create_response.status_code == 200
+    user_id = create_response.json()["id"]
+    old_key = create_response.json()["api_key"]
+
+    # Reset API key
+    response = await client.post(
+        f"/api/portal/management/users/{user_id}/reset-key",
+        headers={"X-API-Key": admin_api_key}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "api_key" in data
+    assert data["api_key"] != old_key
+
