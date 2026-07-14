@@ -10,6 +10,7 @@ import {
 
 import axios from '../utils/axios'
 import { useToast } from '../composables/useToast'
+import { copyToClipboard } from '@/utils/clipboard'
 import { useFullscreen } from '../composables/useFullscreen'
 import { isSystemResourceGroup, sortResourceGroups, SYSTEM_RESOURCE_GROUP } from '@/types/resource'
 import * as XLSX from 'xlsx'
@@ -367,10 +368,10 @@ const adoptAllSuggestions = () => {
 }
 
 const copySuggestionSql = async (sql: string) => {
-  try {
-    await navigator.clipboard.writeText(sql)
+  const success = await copyToClipboard(sql)
+  if (success) {
     showToast('SQL 已复制到剪贴板', 'success')
-  } catch {
+  } else {
     showToast('复制失败，请手动选择复制', 'error')
   }
 }

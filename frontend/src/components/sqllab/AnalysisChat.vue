@@ -15,6 +15,7 @@ import {
 import { renderMarkdown } from "../../utils/markdown";
 import axios from "@/utils/axios";
 import { useToast } from "@/composables/useToast";
+import { copyToClipboard as safeCopyToClipboard } from '@/utils/clipboard'
 import VChart from "vue-echarts";
 import { use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -57,18 +58,22 @@ const suppressAutoStart = ref(false);
 
 const copiedId = ref<number | null>(null);
 const copiedCodeId = ref<string | null>(null);
-const copyToClipboard = (text: string, idx: number) => {
-  navigator.clipboard.writeText(text);
-  copiedId.value = idx;
-  setTimeout(() => {
-    copiedId.value = null;
-  }, 2000);
+const copyToClipboard = async (text: string, idx: number) => {
+  const success = await safeCopyToClipboard(text);
+  if (success) {
+    copiedId.value = idx;
+    setTimeout(() => {
+      copiedId.value = null;
+    }, 2000);
+  }
 };
 
-const copyCodeBlock = (code: string, id: string) => {
-  navigator.clipboard.writeText(code);
-  copiedCodeId.value = id;
-  setTimeout(() => { copiedCodeId.value = null; }, 2000);
+const copyCodeBlock = async (code: string, id: string) => {
+  const success = await safeCopyToClipboard(code);
+  if (success) {
+    copiedCodeId.value = id;
+    setTimeout(() => { copiedCodeId.value = null; }, 2000);
+  }
 };
 
 const handleMarkdownClick = (e: MouseEvent) => {

@@ -614,6 +614,7 @@ import { useRoute } from 'vue-router'
 import axios from 'axios'
 import { useToast } from '../composables/useToast'
 import { useActionMoreMenu } from '../composables/useActionMoreMenu'
+import { copyToClipboard } from '@/utils/clipboard'
 import Switch from '../components/Switch.vue'
 import ClearableInput from '../components/common/ClearableInput.vue'
 import { 
@@ -1110,33 +1111,21 @@ const executeRegenerateApiKey = async () => {
 
 // Copy API key to clipboard
 const copyApiKey = async () => {
-  try {
-    await navigator.clipboard.writeText(createdApiKey.value)
+  const success = await copyToClipboard(createdApiKey.value)
+  if (success) {
     showToast('API Key 已复制到剪贴板！', 'success')
-  } catch (e) {
-    const textArea = document.createElement('textarea')
-    textArea.value = createdApiKey.value
-    document.body.appendChild(textArea)
-    textArea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textArea)
-    showToast('API Key 已复制到剪贴板！', 'success')
+  } else {
+    showToast('复制失败', 'error')
   }
 }
 
 // Copy regenerated API key
 const copyRegeneratedApiKey = async () => {
-  try {
-    await navigator.clipboard.writeText(regeneratedApiKey.value)
+  const success = await copyToClipboard(regeneratedApiKey.value)
+  if (success) {
     showToast('新的 API Key 已复制到剪贴板！', 'success')
-  } catch (e) {
-    const textArea = document.createElement('textarea')
-    textArea.value = regeneratedApiKey.value
-    document.body.appendChild(textArea)
-    textArea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textArea)
-    showToast('新的 API Key 已复制到剪贴板！', 'success')
+  } else {
+    showToast('复制失败', 'error')
   }
 }
 
@@ -1173,17 +1162,11 @@ const viewApiKey = async (user: any) => {
 
 // Copy viewed API key
 const copyViewedApiKey = async () => {
-  try {
-    await navigator.clipboard.writeText(viewedApiKey.value)
+  const success = await copyToClipboard(viewedApiKey.value)
+  if (success) {
     showToast('API Key 已复制到剪贴板！', 'success')
-  } catch (e) {
-    const textArea = document.createElement('textarea')
-    textArea.value = viewedApiKey.value
-    document.body.appendChild(textArea)
-    textArea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textArea)
-    showToast('API Key 已复制到剪贴板！', 'success')
+  } else {
+    showToast('复制失败', 'error')
   }
 }
 

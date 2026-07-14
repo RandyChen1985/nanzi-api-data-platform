@@ -16,6 +16,7 @@ import { CircleStackIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { Codemirror } from 'vue-codemirror'
 import { sql } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const router = useRouter()
 const isSidebarCollapsed = ref(false)
@@ -851,11 +852,15 @@ const exportResource = (res: Resource) => {
   showToast('导出成功', 'success')
 }
 
-const copyApiUrl = (key: string, type: 'resource' | 'query') => {
+const copyApiUrl = async (key: string, type: 'resource' | 'query') => {
   const origin = window.location.origin
   const url = type === 'resource' ? `${origin}/api/v1/resources/${key}` : `${origin}/api/v1/query`
-  navigator.clipboard.writeText(url)
-  showToast(type === 'resource' ? '资源接口 URL 已复制' : '通用 Query URL 已复制', 'success')
+  const success = await copyToClipboard(url)
+  if (success) {
+    showToast(type === 'resource' ? '资源接口 URL 已复制' : '通用 Query URL 已复制', 'success')
+  } else {
+    showToast('复制失败', 'error')
+  }
 }
 
 const handleImport = (event: Event) => {

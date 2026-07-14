@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from '@/utils/axios'
 import { useToast } from '../composables/useToast'
+import { copyToClipboard } from '@/utils/clipboard'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import Switch from '../components/Switch.vue'
 import SystemMonitor from '../components/SystemMonitor.vue'
@@ -342,10 +343,10 @@ const copyMcpSseUrl = async () => {
     showToast('暂无 SSE 地址', 'error')
     return
   }
-  try {
-    await navigator.clipboard.writeText(url)
+  const success = await copyToClipboard(url)
+  if (success) {
     showToast('已复制 SSE 地址', 'success')
-  } catch {
+  } else {
     showToast('复制失败，请手动选择复制', 'error')
   }
 }
@@ -368,10 +369,10 @@ const mcpSseCursorExample = computed(() =>
 )
 
 const copyMcpSseCursorConfig = async () => {
-  try {
-    await navigator.clipboard.writeText(mcpSseCursorExample.value)
+  const success = await copyToClipboard(mcpSseCursorExample.value)
+  if (success) {
     showToast('已复制 Cursor SSE 配置示例', 'success')
-  } catch {
+  } else {
     showToast('复制失败，请手动选择复制', 'error')
   }
 }

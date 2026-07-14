@@ -9,6 +9,7 @@ import LabResultPivot from './LabResultPivot.vue'
 import LabResultCompare from './LabResultCompare.vue'
 import LabVirtualTable from './LabVirtualTable.vue'
 import { useToast } from '../../composables/useToast'
+import { copyToClipboard } from '@/utils/clipboard'
 
 export type PreviewResult = {
   columns: { name: string; type?: string }[]
@@ -151,10 +152,10 @@ const currentPage = computed(() => {
 })
 
 const copyTextOutput = async () => {
-  try {
-    await navigator.clipboard.writeText(textOutput.value)
+  const success = await copyToClipboard(textOutput.value)
+  if (success) {
     showToast('结果已复制为文本', 'success')
-  } catch {
+  } else {
     showToast('复制失败', 'error')
   }
 }
@@ -162,10 +163,10 @@ const copyTextOutput = async () => {
 const copyColumn = async (colIdx: number) => {
   if (!props.result) return
   const lines = sortedRows.value.map(r => formatCell(r[colIdx]))
-  try {
-    await navigator.clipboard.writeText(lines.join('\n'))
+  const success = await copyToClipboard(lines.join('\n'))
+  if (success) {
     showToast('列已复制', 'success')
-  } catch {
+  } else {
     showToast('复制失败', 'error')
   }
 }

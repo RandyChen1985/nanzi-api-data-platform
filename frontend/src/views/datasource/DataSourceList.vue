@@ -19,6 +19,7 @@ import {
   ShieldCheckIcon,
 } from '@heroicons/vue/24/outline'
 import type { DataSource } from '@/types/datasource'
+import { copyToClipboard } from '@/utils/clipboard'
 import {
   DATA_SOURCE_TYPE_LABELS,
   dataSourceTypeClass,
@@ -556,10 +557,10 @@ const saveReorder = async () => {
 
 const copyConnectionHint = async (item: DataSource) => {
   const text = `${item.source_type}://${item.username || 'user'}@${item.host}:${item.port}/${item.database_name || 'default'}`
-  try {
-    await navigator.clipboard.writeText(text)
+  const success = await copyToClipboard(text)
+  if (success) {
     showToast('连接信息已复制', 'success')
-  } catch {
+  } else {
     showToast('复制失败', 'error')
   }
 }

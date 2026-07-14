@@ -11,6 +11,7 @@ import { Codemirror } from 'vue-codemirror'
 import { sql } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { isSystemResourceGroup, sortResourceGroups, SYSTEM_RESOURCE_GROUP } from '@/types/resource'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const route = useRoute()
 const router = useRouter()
@@ -746,10 +747,10 @@ const apiUrl = computed(() => {
 })
 
 const copyApiUrl = async () => {
-    try {
-        await navigator.clipboard.writeText(apiUrl.value)
+    const success = await copyToClipboard(apiUrl.value)
+    if (success) {
         showToast('连接已复制', 'success')
-    } catch (e) {
+    } else {
         showToast('复制失败', 'error')
     }
 }
@@ -806,10 +807,10 @@ const runTestJson = async () => {
 }
 
 const copyText = async (text: string) => {
-    try {
-        await navigator.clipboard.writeText(text)
+    const success = await copyToClipboard(text)
+    if (success) {
         showToast('已复制到剪贴板', 'success')
-    } catch (e) {
+    } else {
         showToast('复制失败', 'error')
     }
 }

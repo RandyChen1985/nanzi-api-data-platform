@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { DocumentDuplicateIcon, CheckIcon } from '@heroicons/vue/24/outline'
 import { useToast } from '@/composables/useToast'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const props = withDefaults(
   defineProps<{
@@ -25,14 +26,14 @@ const copied = ref(false)
 
 const copyName = async (e: Event) => {
   e.stopPropagation()
-  try {
-    await navigator.clipboard.writeText(props.name)
+  const success = await copyToClipboard(props.name)
+  if (success) {
     copied.value = true
     showToast('产品名称已复制', 'success')
     setTimeout(() => {
       copied.value = false
     }, 1500)
-  } catch {
+  } else {
     showToast('复制失败', 'error')
   }
 }

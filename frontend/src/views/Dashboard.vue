@@ -6,6 +6,7 @@ import Toast from '../components/Toast.vue'
 import MyPermissionsModal from '../components/MyPermissionsModal.vue'
 import { useMobileLayout } from '../composables/useMobileLayout'
 import { useBranding } from '@/composables/useBranding'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const router = useRouter()
 const route = useRoute()
@@ -340,11 +341,10 @@ const copyApiKey = async () => {
     return
   }
   
-  try {
-    await navigator.clipboard.writeText(userApiKey.value)
+  const success = await copyToClipboard(userApiKey.value)
+  if (success) {
     showToast('API Key 已复制到剪贴板', 'success')
-  } catch (err) {
-    console.error('Failed to copy:', err)
+  } else {
     showToast('复制失败，请手动复制', 'error')
   }
 }

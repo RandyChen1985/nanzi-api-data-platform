@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { metadataV2Api, SEARCH_TYPES, type SearchType } from '../api/metadata_v2'
 import axios from '../utils/axios'
 import { useToast } from '../composables/useToast'
+import { copyToClipboard as safeCopyToClipboard } from '@/utils/clipboard'
 import VectorProcessDiagram from '../components/metadata/VectorProcessDiagram.vue'
 import ClearableInput from '../components/common/ClearableInput.vue'
 
@@ -113,10 +114,10 @@ const checkVectorSupport = async () => {
 }
 
 const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
+  const success = await safeCopyToClipboard(text)
+  if (success) {
     showToast('内容已成功复制到剪贴板', 'success')
-  } catch (e) {
+  } else {
     showToast('复制失败，请手动选择复制', 'error')
   }
 }

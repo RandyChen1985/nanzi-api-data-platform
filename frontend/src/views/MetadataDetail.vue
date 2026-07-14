@@ -11,6 +11,7 @@ import {
   ShieldCheckIcon, ArrowPathIcon, InformationCircleIcon
 } from '@heroicons/vue/24/outline'
 import { useToast } from '../composables/useToast'
+import { copyToClipboard } from '@/utils/clipboard'
 
 // Components
 import MetricList from '../components/metadata/MetricList.vue'
@@ -216,11 +217,10 @@ const fetchYaml = async () => {
 }
 
 const copyYaml = async () => {
-  try {
-    await navigator.clipboard.writeText(yamlContent.value)
+  const success = await copyToClipboard(yamlContent.value)
+  if (success) {
     showToast('YAML 内容已复制', 'success')
-  }
-  catch (err) {
+  } else {
     showToast('复制失败', 'error')
   }
 }

@@ -325,6 +325,7 @@ import { ShieldCheckIcon, BoltIcon } from '@heroicons/vue/24/outline'
 import CatalogChangeNotificationsPanel from '@/components/catalog/CatalogChangeNotificationsPanel.vue'
 import ClearableInput from '@/components/common/ClearableInput.vue'
 import { renderMarkdown } from '@/utils/markdown'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const props = withDefaults(
   defineProps<{
@@ -449,21 +450,19 @@ const formatDate = (dateStr: string) => {
 }
 
 const copyText = async (text: string, label: string = '内容') => {
-  try {
-     await navigator.clipboard.writeText(text)
+  const success = await copyToClipboard(text)
+  if (success) {
      emit('show-toast', `已复制 ${label}`, 'success')
-  } catch (e) {
-     console.error(e)
+  } else {
      emit('show-toast', '复制失败', 'error')
   }
 }
 
 const copyCode = async (code: string) => {
-    try {
-        await navigator.clipboard.writeText(code)
+    const success = await copyToClipboard(code)
+    if (success) {
         emit('show-toast', '代码已复制', 'success')
-    } catch (e) {
-        console.error(e)
+    } else {
         emit('show-toast', '复制失败', 'error')
     }
 }

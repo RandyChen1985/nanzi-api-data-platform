@@ -60,6 +60,7 @@ public class YunshuClient {
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const copied = ref(false)
 const codeText = `import okhttp3.*;
@@ -107,9 +108,11 @@ public class YunshuClient {
     }
 }`
 
-const copyCode = () => {
-  navigator.clipboard.writeText(codeText)
-  copied.value = true
-  setTimeout(() => copied.value = false, 2000)
+const copyCode = async () => {
+  const success = await copyToClipboard(codeText)
+  if (success) {
+    copied.value = true
+    setTimeout(() => copied.value = false, 2000)
+  }
 }
 </script>

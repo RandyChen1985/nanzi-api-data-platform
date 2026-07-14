@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import axios from '@/utils/axios'
 import Toast from '@/components/Toast.vue'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const userInfo = ref({
   id: 0,
@@ -57,10 +58,10 @@ const fetchApiKey = async () => {
 
 const copyApiKey = async () => {
   if (!userApiKey.value) return
-  try {
-    await navigator.clipboard.writeText(userApiKey.value)
+  const success = await copyToClipboard(userApiKey.value)
+  if (success) {
     showToast('API Key 已复制', 'success')
-  } catch {
+  } else {
     showToast('复制失败', 'error')
   }
 }

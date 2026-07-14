@@ -14,6 +14,7 @@ import CatalogProductName from '@/components/catalog/CatalogProductName.vue'
 import CatalogLinkedResourceChanges from '@/components/catalog/CatalogLinkedResourceChanges.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { toFeaturedBool, catalogShelfStatus } from '@/utils/catalog'
+import { copyToClipboard } from '@/utils/clipboard'
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent])
 
@@ -191,7 +192,12 @@ const trendOption = computed(() => {
 })
 
 const copyCode = async () => {
-  await navigator.clipboard.writeText(exampleCode.value)
+  const success = await copyToClipboard(exampleCode.value)
+  if (success) {
+    showToast('示例代码已复制', 'success')
+  } else {
+    showToast('复制失败', 'error')
+  }
 }
 
 const openUnpublishModal = async () => {
