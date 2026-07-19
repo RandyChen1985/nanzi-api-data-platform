@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 from app.services.system_service import SystemService
 
-DEFAULT_PRODUCT_NAME = "南孜 · 数据服务平台"
+DEFAULT_PRODUCT_NAME = "NanZi · 数据服务平台"
 DEFAULT_LOGIN_SUBTITLE = "NanZi API Data Platform"
 DEFAULT_ICON_URL = "/favicon.png"
 

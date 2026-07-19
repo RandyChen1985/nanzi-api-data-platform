@@ -1,13 +1,18 @@
--- V40: 品牌重命名 云枢/Yunshu → 南孜/NanZi（幂等更新默认品牌文案）
+-- V40: 品牌重命名 云枢/Yunshu → NanZi（幂等更新默认品牌文案）
 -- Date: 2026-07-17
 -- Note: 仅覆盖仍为旧默认值的配置；已自定义的 branding 文案不受影响。
 
 SET NAMES utf8mb4;
 
 UPDATE sys_config
-SET config_value = '南孜 · 数据服务平台'
+SET config_value = 'NanZi · 数据服务平台'
 WHERE config_key = 'branding.product_name'
-  AND config_value IN ('云枢 · 数据服务平台', 'Yunshu · 数据服务平台');
+  AND config_value IN (
+    '云枢 · 数据服务平台',
+    'Yunshu · 数据服务平台',
+    '南孜 · 数据服务平台',
+    '南孜·数据服务平台'
+  );
 
 UPDATE sys_config
 SET config_value = 'NanZi API Data Platform'

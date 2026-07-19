@@ -570,11 +570,11 @@ const filteredMenuGroups = computed(() => {
           <img :src="branding.icon_url" class="w-8 h-8 rounded-lg object-cover" alt="Logo" />
         </router-link>
         <transition name="fade">
-          <div v-if="!isCollapsed || isMobile" class="ml-2.5 flex flex-col justify-center -translate-y-0.5">
+          <div v-if="!isCollapsed || isMobile" class="ml-2.5 min-w-0 flex flex-col justify-center -translate-y-0.5">
             <router-link
               to="/dashboard/catalog"
-              class="text-[15px] font-bold tracking-wide leading-tight hover:text-white/90 transition-colors focus:outline-none focus-visible:underline"
-              title="产品目录"
+              class="text-[13px] font-semibold tracking-tight leading-tight truncate hover:text-white/90 transition-colors focus:outline-none focus-visible:underline"
+              :title="branding.product_name"
               @click="isMobile ? closeMobileSidebar() : null"
             >
               {{ branding.product_name }}

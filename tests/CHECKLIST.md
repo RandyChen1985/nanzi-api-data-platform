@@ -124,7 +124,7 @@
 | :-------------- | :---------------- | :----------------------------------------------- | :----- | :----------- |
 | Docker 镜像构建 | `docker/build_linux_x86.sh` | 基础镜像兼容性、Python 依赖冲突 (bcrypt/passlib) | ✅ 通过 | 2026-01-01   |
 | 跨平台兼容性    | CI/Docker         | Linux/Slim 镜像下的加密库依赖验证                | ✅ 通过 | 2026-01-01   |
-| 品牌重命名迁移  | `db-prod/V40-rebrand-nanzi.sql` | 默认品牌/MCP instructions 由云枢→南孜（幂等） | ⏳ 待验 | 2026-07-17   |
+| 品牌重命名迁移  | `db-prod/V40-rebrand-nanzi.sql` | 默认品牌/MCP instructions 由云枢/南孜→NanZi（幂等） | ⏳ 待验 | 2026-07-19   |
 
 ---
 **说明**:

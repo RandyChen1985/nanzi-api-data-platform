@@ -148,7 +148,7 @@ const mcpConfig = ref({
 })
 const brandingConfig = ref({
   enabled: false,
-  product_name: '南孜 · 数据服务平台',
+  product_name: 'NanZi · 数据服务平台',
   login_subtitle: 'NanZi API Data Platform',
   icon_url: '/favicon.png',
   hide_login_sso: false,
@@ -204,7 +204,7 @@ const applyPlatformSettings = (data: any) => {
 
   const branding = data.branding || {}
   brandingConfig.value.enabled = !!branding.enabled
-  brandingConfig.value.product_name = branding.product_name || '南孜 · 数据服务平台'
+  brandingConfig.value.product_name = branding.product_name || 'NanZi · 数据服务平台'
   brandingConfig.value.login_subtitle = branding.login_subtitle || 'NanZi API Data Platform'
   brandingConfig.value.icon_url = branding.icon_url || '/favicon.png'
   brandingConfig.value.hide_login_sso = !!branding.hide_login_sso
@@ -1666,7 +1666,7 @@ const formatDateTime = (val: string) => {
                   v-model="brandingConfig.product_name"
                   type="text"
                   class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                  placeholder="南孜 · 数据服务平台"
+                  placeholder="NanZi · 数据服务平台"
                 />
                 <p class="text-xs text-gray-400 mt-1">影响浏览器标题、左侧菜单栏名称、登录页</p>
               </div>
