@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240" fill="none">
+  <title>NanZi empty state illustration</title>
+  <rect x="44" y="38" width="232" height="152" rx="24" fill="#EFF6FF" stroke="#BFDBFE" stroke-width="3"/>
+  <path d="M82 154V91C82 84 91 81 96 87L142 137V91" stroke="#2563EB" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M82 154L112 131L142 137" stroke="#67E8F9" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="82" cy="154" r="7" fill="#67E8F9"/><circle cx="142" cy="137" r="7" fill="#A78BFA"/>
+  <path d="M180 91H236M180 118H220M180 145H230" stroke="#CBD5E1" stroke-width="8" stroke-linecap="round"/>
+  <path d="M106 211H214" stroke="#93C5FD" stroke-width="6" stroke-linecap="round"/>
+</svg>

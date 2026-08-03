@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>NanZi monochrome N icon</title>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#0F172A"/>
+  <path d="M136 374V135C136 109 170 98 187 122L352 322V135" stroke="white" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M136 374L224 304L352 322" stroke="#CBD5E1" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="136" cy="374" r="18" fill="#CBD5E1" stroke="white" stroke-width="6"/>
+  <circle cx="352" cy="322" r="18" fill="#94A3B8" stroke="white" stroke-width="6"/>
+</svg>

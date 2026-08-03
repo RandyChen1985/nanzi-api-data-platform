@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="160" viewBox="0 0 680 160" fill="none">
+  <title>NanZi wordmark on dark</title>
+  <defs><linearGradient id="wordmark-dark-gradient" x1="16" y1="144" x2="144" y2="16" gradientUnits="userSpaceOnUse"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#6366F1"/></linearGradient></defs>
+  <rect x="16" y="16" width="128" height="128" rx="31" fill="url(#wordmark-dark-gradient)"/>
+  <path d="M50 110V50C50 43 58 40 63 46L105 97V50" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50 110L73 92L105 97L115 80" stroke="#A5F3FC" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="50" cy="110" r="5" fill="#A5F3FC" stroke="white" stroke-width="2"/>
+  <circle cx="105" cy="97" r="5" fill="#C4B5FD" stroke="white" stroke-width="2"/>
+  <circle cx="115" cy="80" r="5" fill="#A5F3FC" stroke="white" stroke-width="2"/>
+  <text x="174" y="78" fill="white" font-family="Inter, PingFang SC, Microsoft YaHei, sans-serif" font-size="42" font-weight="750" letter-spacing="-1.2">NanZi</text>
+  <text x="177" y="112" fill="#CBD5E1" font-family="Inter, PingFang SC, Microsoft YaHei, sans-serif" font-size="19" font-weight="600" letter-spacing="1.5">智能体平台 · AI AGENT PLATFORM</text>
+</svg>

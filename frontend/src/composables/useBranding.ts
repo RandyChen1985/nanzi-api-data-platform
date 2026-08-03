@@ -18,6 +18,11 @@ function applyFavicon(iconUrl: string) {
     document.head.appendChild(link)
   }
   link.href = href
+  if (href.endsWith('.svg')) {
+    link.type = 'image/svg+xml'
+  } else if (href.endsWith('.png')) {
+    link.type = 'image/png'
+  }
 }
 
 export function applyDocumentTitle(pageTitle?: string) {

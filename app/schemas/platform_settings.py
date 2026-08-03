@@ -38,8 +38,8 @@ class McpPlatformSettings(BaseModel):
 class BrandingPlatformSettings(BaseModel):
     enabled: bool = False
     product_name: str = "NanZi · 数据服务平台"
-    login_subtitle: str = "NanZi API Data Platform"
-    icon_url: str = "/favicon.png"
+    login_subtitle: str = "Your API Data Platform"
+    icon_url: str = "/favicon.svg"
     hide_login_sso: bool = False
     hide_version_link: bool = False
     contact_markdown: str = ""
@@ -49,8 +49,8 @@ class BrandingPlatformSettings(BaseModel):
 class BrandingPlatformSettingsUpdate(BaseModel):
     enabled: bool = False
     product_name: str = "NanZi · 数据服务平台"
-    login_subtitle: str = "NanZi API Data Platform"
-    icon_url: str = "/favicon.png"
+    login_subtitle: str = "Your API Data Platform"
+    icon_url: str = "/favicon.svg"
     hide_login_sso: bool = False
     hide_version_link: bool = False
     contact_markdown: str = ""

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" fill="none">
+  <title>NanZi default agent avatar</title>
+  <defs><linearGradient id="agent-avatar-gradient" x1="32" y1="224" x2="224" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#0891B2"/><stop offset="0.5" stop-color="#2563EB"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
+  <circle cx="128" cy="128" r="112" fill="url(#agent-avatar-gradient)"/>
+  <circle cx="128" cy="128" r="91" stroke="white" stroke-opacity="0.22" stroke-width="2" stroke-dasharray="3 8"/>
+  <path d="M82 183V77C82 66 96 61 103 71L161 143V77" stroke="white" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M82 183L112 158L161 143L179 112" stroke="#A5F3FC" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="82" cy="183" r="9" fill="#A5F3FC" stroke="white" stroke-width="3"/>
+  <circle cx="161" cy="143" r="9" fill="#C4B5FD" stroke="white" stroke-width="3"/>
+  <circle cx="179" cy="112" r="9" fill="#A5F3FC" stroke="white" stroke-width="3"/>
+</svg>

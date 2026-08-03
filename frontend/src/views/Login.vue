@@ -123,7 +123,7 @@ const handleLogin = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen flex bg-gray-50 overflow-hidden">
+  <div class="min-h-screen flex bg-white overflow-hidden">
     <!-- Left: Infinite Scroll Showcase -->
     <div class="hidden lg:flex lg:flex-[11] relative bg-[#0f172a] overflow-hidden flex-col items-center justify-center">
       
@@ -263,7 +263,7 @@ const handleLogin = async () => {
     </div>
 
     <!-- Right: Login Form -->
-    <div class="w-full lg:flex-[4] flex items-center justify-center bg-gray-50 p-6 sm:p-12 relative z-10">
+    <div class="w-full lg:flex-[4] flex items-center justify-center bg-white p-6 sm:p-12 relative z-10">
       <div class="w-full max-w-sm space-y-8">
         <div class="text-center">
           <div class="lg:hidden flex flex-col items-center mb-6">
@@ -435,7 +435,7 @@ const handleLogin = async () => {
               <div class="w-full border-t border-gray-300"></div>
             </div>
             <div class="relative flex justify-center text-sm">
-              <span class="px-2 bg-gray-50 text-gray-500">
+              <span class="px-2 bg-white text-gray-500">
                 仅限授权人员访问
               </span>
             </div>
