@@ -53,6 +53,7 @@
 | `/api/portal/meta/v2/*`   | `test_meta_v2.py`           | **语义化元数据管理 (V2) CRUD (修复指标/关系编辑按钮缺失)、AI 智能发现指标、YAML 生成、血缘分析、导入表名过滤** | ✅ 通过 | 2026-03-17   |
 | `/api/portal/meta/resources/{key}/versions` | `test_resource_versions.py` | **资源配置版本历史、差异对比、回滚** | ✅ 通过 | 2026-07-01   |
 | `/api/portal/datasource/datasources/{id}/profile` 等 | (Manual/UI Test) | **数据源智能摸排分析 (Table Profiling)、异步串行采样与 LLM 画像生成、忽略特定资产** | ⏳ 待验 | 2026-07-11   |
+| Frontend Dashboard Layout | `test_dashboard_branding_layout.py` | **侧边栏 Branding Header 垂直居中对齐与 CSS 类结构验证** | ✅ 通过 | 2026-08-03 |
 
 ## 9. 数据产品目录 (Data Product Catalog)
 
