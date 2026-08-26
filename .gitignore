@@ -1,6 +1,7 @@
 # General
 .DS_Store
 .AppleDouble
+.superpowers
 .LSOverride
 
 # Python

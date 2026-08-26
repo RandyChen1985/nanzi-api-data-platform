@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from "vue";
 import {
   XMarkIcon,
   PaperAirplaneIcon,
@@ -11,11 +11,24 @@ import {
   TrashIcon,
   StopIcon,
   ArrowPathIcon,
+  ArrowsPointingOutIcon,
+  ArrowsPointingInIcon,
+  DocumentTextIcon,
+  ArrowDownTrayIcon,
 } from "@heroicons/vue/24/outline";
 import { renderMarkdown } from "../../utils/markdown";
 import axios from "@/utils/axios";
 import { useToast } from "@/composables/useToast";
 import { copyToClipboard as safeCopyToClipboard } from '@/utils/clipboard'
+import { saveAs } from 'file-saver'
+import {
+  buildAnalysisDocx,
+  buildAnalysisFilename,
+  buildAnalysisMarkdown,
+  normalizeAnalysisTitle,
+  type AnalysisChartImage,
+  type AnalysisExportMessage,
+} from '../../utils/analysisExport'
 import VChart from "vue-echarts";
 import { use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
@@ -103,6 +116,7 @@ const lastAnalyzedQuery = ref("");
 
 const resetChat = () => {
   messages.value = [];
+  sessionTitle.value = '';
   lastAnalyzedQuery.value = props.initialQuery || "";
   suppressAutoStart.value = false;
 };
@@ -130,11 +144,13 @@ const loadSession = async (sessionId: number) => {
     const data = res.data;
     const msgs = normalizeLoadedMessages((data.messages_json || []) as Message[]);
     messages.value = msgs;
+    sessionTitle.value = data.title || '';
     lastAnalyzedQuery.value = data.sql_text || props.initialQuery || "";
     suppressAutoStart.value = true;
     showSessionPanel.value = false;
     showToast(`已加载「${data.title}」`, "success");
-    scrollToBottom();
+    userScrolled.value = false;
+    scrollToBottom(true);
   } catch {
     showToast("加载会话失败", "error");
   }
@@ -198,18 +214,188 @@ const inputText = ref("");
 const loading = ref(false);
 const chatScrollRef = ref<HTMLElement | null>(null);
 const chatAbortController = ref<AbortController | null>(null);
+const isMaximized = ref(false);
+const showSaveDialog = ref(false);
+const saveTitle = ref('');
+const sessionTitle = ref('');
+const exporting = ref(false);
+const canSave = computed(() => messages.value.length > 0);
+const canExport = computed(() => messages.value.length > 0 && !loading.value && !exporting.value);
+
+// --- 新增状态 ---
+const showExportMenu = ref(false);
+const exportMenuRef = ref<HTMLElement | null>(null);
+const userScrolled = ref(false);          // 用户手动上滑时暂停自动滚动
+const expandedSuggestions = ref<Set<number>>(new Set()); // 展开的建议 idx
+const textareaRef = ref<HTMLTextAreaElement | null>(null);
+
+type ChartInstanceRef = {
+  getDataURL: (options?: {
+    type?: 'png';
+    pixelRatio?: number;
+    backgroundColor?: string;
+  }) => string;
+  getWidth: () => number;
+  getHeight: () => number;
+};
+
+const chartRefs = new Map<string, ChartInstanceRef>();
+
+const registerChartRef = (key: string, instance: unknown) => {
+  const chart = instance as Partial<ChartInstanceRef> | null;
+  if (
+    chart &&
+    typeof chart.getDataURL === 'function' &&
+    typeof chart.getWidth === 'function' &&
+    typeof chart.getHeight === 'function'
+  ) {
+    chartRefs.set(key, chart as ChartInstanceRef);
+  } else {
+    chartRefs.delete(key);
+  }
+};
+
+const captureChartImages = async (): Promise<Array<Array<AnalysisChartImage | undefined>>> => {
+  await nextTick();
+  return messages.value.map((message, messageIndex) =>
+    (message.charts || []).map((_, chartIndex) => {
+      const chart = chartRefs.get(`${messageIndex}-${chartIndex}`);
+      if (!chart) return undefined;
+      try {
+        const dataUrl = chart.getDataURL({
+          type: 'png',
+          pixelRatio: 2,
+          backgroundColor: '#ffffff',
+        });
+        return dataUrl
+          ? { dataUrl, width: chart.getWidth(), height: chart.getHeight() }
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+};
+
+const createDefaultSessionTitle = () => `分析 ${new Date().toLocaleString('zh-CN')}`;
+
+const openSaveDialog = () => {
+  saveTitle.value = sessionTitle.value || createDefaultSessionTitle();
+  showSaveDialog.value = true;
+};
+
+const confirmSave = () => {
+  const title = normalizeAnalysisTitle(saveTitle.value);
+  if (!title) {
+    showToast('请输入会话名称', 'warning');
+    return;
+  }
+  sessionTitle.value = title;
+  showSaveDialog.value = false;
+  emit('save-session', { title, messages: messages.value });
+  showToast('会话已保存', 'success'); // 保存成功即时反馈
+};
+
+const buildExportInput = (
+  chartImages: readonly (readonly (AnalysisChartImage | undefined)[])[] = [],
+) => ({
+  title: sessionTitle.value || 'AI 数据专家分析',
+  sql: lastAnalyzedQuery.value || props.initialQuery,
+  messages: messages.value.map((message, messageIndex): AnalysisExportMessage => ({
+    role: message.role,
+    content: message.content,
+    charts: message.charts ? [...message.charts] : [],
+    chartImages: chartImages[messageIndex],
+    suggestions: message.suggestions ? [...message.suggestions] : [],
+  })),
+});
+
+const exportMarkdown = () => {
+  if (!canExport.value) return;
+  try {
+    const input = buildExportInput();
+    const content = buildAnalysisMarkdown(input);
+    saveAs(
+      new Blob([content], { type: 'text/markdown;charset=utf-8' }),
+      buildAnalysisFilename(input.title, 'md'),
+    );
+    showToast('Markdown 导出成功', 'success');
+  } catch {
+    showToast('导出失败', 'error');
+  }
+};
+
+const exportWord = async () => {
+  if (!canExport.value) return;
+  exporting.value = true;
+  try {
+    const input = buildExportInput(await captureChartImages());
+    const blob = await buildAnalysisDocx(input);
+    saveAs(blob, buildAnalysisFilename(input.title, 'docx'));
+    showToast('Word 导出成功', 'success');
+  } catch {
+    showToast('导出失败', 'error');
+  } finally {
+    exporting.value = false;
+  }
+};
 
 const stopGeneration = () => {
   if (!loading.value) return;
   chatAbortController.value?.abort();
 };
 
-const scrollToBottom = () => {
+const scrollToBottom = (force = false) => {
   nextTick(() => {
-    if (chatScrollRef.value) {
+    if (chatScrollRef.value && (!userScrolled.value || force)) {
       chatScrollRef.value.scrollTop = chatScrollRef.value.scrollHeight;
     }
   });
+};
+
+/** 检测用户是否手动上滑（距底部 > 100px 则认为是主动查看历史） */
+const handleChatScroll = () => {
+  if (!chatScrollRef.value) return;
+  const { scrollTop, scrollHeight, clientHeight } = chatScrollRef.value;
+  userScrolled.value = scrollHeight - scrollTop - clientHeight > 100;
+};
+
+/** 格式化历史会话时间 */
+const formatSessionTime = (dateStr: string) => {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch { return dateStr; }
+};
+
+/** 建议 tag：默认最多显示 3 条 */
+const visibleSuggestions = (msg: Message, idx: number) => {
+  if (!msg.suggestions) return [];
+  if (expandedSuggestions.value.has(idx) || msg.suggestions.length <= 3) return msg.suggestions;
+  return msg.suggestions.slice(0, 3);
+};
+
+const toggleSuggestions = (idx: number) => {
+  const next = new Set(expandedSuggestions.value);
+  if (next.has(idx)) { next.delete(idx); } else { next.add(idx); }
+  expandedSuggestions.value = next;
+};
+
+/** textarea 自动高度（最高 200px） */
+const autoResize = () => {
+  const el = textareaRef.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+};
+
+/** 点击导出菜单外部时关闭 */
+const closeExportMenu = (e: MouseEvent) => {
+  if (exportMenuRef.value && !exportMenuRef.value.contains(e.target as Node)) {
+    showExportMenu.value = false;
+  }
 };
 
 const findJsonArrayEnd = (text: string, start: number): number => {
@@ -336,7 +522,8 @@ const normalizeLoadedMessages = (msgs: Message[]): Message[] =>
     }
     
     loading.value = true
-    scrollToBottom()
+    userScrolled.value = false   // 发送新消息时解除滚动锁定
+    scrollToBottom(true)
   
     const assistantMsgIndex = messages.value.length
     messages.value.push({ 
@@ -470,9 +657,11 @@ watch(
 
 onBeforeUnmount(() => {
   stopGeneration();
+  document.removeEventListener('mousedown', closeExportMenu);
 });
 
 onMounted(() => {
+  document.addEventListener('mousedown', closeExportMenu);
   if (props.isOpen) {
     resetChat();
     sendMessage("请作为数据运营专家，根据这份查询结果提供核心洞察和建议。");
@@ -483,35 +672,100 @@ onMounted(() => {
 <template>
   <Teleport to="body">
     <div v-if="isOpen" class="fixed inset-0 z-[10000] flex justify-end">
-      <!-- 遮罩：点击关闭，并突出右侧抽屉 -->
+      <!-- 非最大化时保留遮罩，最大化后让分析内容占满视口 -->
       <div
+        v-if="!isMaximized"
         class="absolute inset-0 bg-gray-900/45 backdrop-blur-[2px]"
         aria-hidden="true"
         @click="emit('close')"
       />
 
       <div
-        class="relative h-full w-full md:w-[75%] max-w-5xl bg-white shadow-2xl flex flex-col border-l border-gray-200 animate-in slide-in-from-right duration-300"
+        :class="[
+          'relative h-full bg-white shadow-2xl flex flex-col border-gray-200 animate-in slide-in-from-right duration-300',
+          isMaximized ? 'w-full max-w-none border-l-0' : 'w-full md:w-[75%] max-w-5xl border-l',
+        ]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="analysis-chat-title"
       >
     <!-- Header -->
-    <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+    <div class="p-4 border-b bg-gray-50 flex flex-wrap gap-3 justify-between items-center">
       <div class="flex items-center gap-2">
         <SparklesIcon class="w-5 h-5 text-indigo-600" />
-        <h3 class="font-bold text-gray-900">AI 数据专家分析</h3>
+        <h3 id="analysis-chat-title" class="font-bold text-gray-900">AI 数据专家分析</h3>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center justify-end gap-2">
         <button
+          type="button"
+          :title="isMaximized ? '还原窗口' : '放大窗口'"
+          :aria-label="isMaximized ? '还原窗口' : '放大窗口'"
+          @click="isMaximized = !isMaximized"
+          class="px-3 py-1 text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 flex items-center gap-1"
+        >
+          <ArrowsPointingInIcon v-if="isMaximized" class="w-3.5 h-3.5" />
+          <ArrowsPointingOutIcon v-else class="w-3.5 h-3.5" />
+          {{ isMaximized ? '还原' : '放大' }}
+        </button>
+        <button
+          type="button"
           @click="openSessionPanel"
           class="px-3 py-1 text-xs font-bold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-100 flex items-center gap-1"
         >
           <ClockIcon class="w-3.5 h-3.5" /> 历史会话
         </button>
         <button
-          v-if="messages.length > 0"
-          @click="emit('save-session', { title: `分析 ${new Date().toLocaleString()}`, messages })"
+          v-if="canSave"
+          type="button"
+          @click="openSaveDialog"
           class="px-3 py-1 text-xs font-bold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50"
         >保存会话</button>
+        <!-- 导出下拉菜单 -->
+        <div class="relative" ref="exportMenuRef">
+          <button
+            type="button"
+            :disabled="!canExport"
+            title="导出分析报告"
+            aria-label="导出分析报告"
+            @click="showExportMenu = !showExportMenu"
+            class="px-3 py-1 text-xs font-bold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+          >
+            <ArrowDownTrayIcon class="w-3.5 h-3.5" /> 导出
+            <svg class="w-2.5 h-2.5 ml-0.5 transition-transform" :class="showExportMenu ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/></svg>
+          </button>
+          <Transition
+            enter-active-class="transition-all duration-150 ease-out"
+            enter-from-class="opacity-0 translate-y-1"
+            enter-to-class="opacity-100 translate-y-0"
+            leave-active-class="transition-all duration-100 ease-in"
+            leave-from-class="opacity-100 translate-y-0"
+            leave-to-class="opacity-0 translate-y-1"
+          >
+            <div
+              v-if="showExportMenu"
+              class="absolute right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-xl shadow-lg z-30 min-w-[148px] py-1 overflow-hidden"
+            >
+              <button
+                type="button"
+                @click="exportMarkdown(); showExportMenu = false"
+                class="w-full px-4 py-2.5 text-xs text-left text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 transition-colors"
+              >
+                <DocumentTextIcon class="w-3.5 h-3.5 shrink-0" /> Markdown
+              </button>
+              <button
+                type="button"
+                @click="exportWord(); showExportMenu = false"
+                class="w-full px-4 py-2.5 text-xs text-left text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 flex items-center gap-2 transition-colors"
+              >
+                <ArrowDownTrayIcon class="w-3.5 h-3.5 shrink-0" /> Word (.docx)
+              </button>
+            </div>
+          </Transition>
+        </div>
         <button
+          type="button"
+          title="关闭 AI 分析"
+          aria-label="关闭 AI 分析"
           @click="emit('close')"
           class="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200 transition-all"
         >
@@ -521,7 +775,7 @@ onMounted(() => {
     </div>
 
     <!-- Chat Area -->
-    <div ref="chatScrollRef" class="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar bg-[#f8fafc] relative">
+    <div ref="chatScrollRef" class="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar bg-[#f8fafc] relative" @scroll.passive="handleChatScroll">
       <div class="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
       
       <div
@@ -574,14 +828,19 @@ onMounted(() => {
               <div
                 v-for="(chartConfig, cIdx) in msg.charts"
                 :key="cIdx"
-                class="bg-white rounded-xl border border-gray-100 p-2 h-72 w-full overflow-hidden shadow-inner"
+                class="bg-white rounded-xl border border-gray-100 p-2 w-full overflow-hidden shadow-inner"
               >
-                <v-chart class="h-full w-full" :option="chartConfig" autoresize />
+                <v-chart
+                  style="height: 288px; width: 100%;"
+                  :option="chartConfig"
+                  autoresize
+                  :ref="(instance) => registerChartRef(`${idx}-${cIdx}`, instance)"
+                />
               </div>
             </div>
           </div>
 
-          <!-- 时间 / 复制 / 重试 -->
+          <!-- 时间 / 复制 / 重试（重试仅 assistant 显示） -->
           <div
             v-if="(msg.content || msg.role === 'user') && !isMessageStreaming(idx)"
             class="mt-1.5 flex items-center gap-3 text-[10px] text-gray-400"
@@ -598,6 +857,7 @@ onMounted(() => {
               {{ copiedId === idx ? '已复制' : '复制' }}
             </button>
             <button
+              v-if="msg.role === 'assistant'"
               type="button"
               class="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               :disabled="loading"
@@ -608,19 +868,27 @@ onMounted(() => {
             </button>
           </div>
 
-          <!-- Guided Suggestions -->
+          <!-- Guided Suggestions（超过 3 条折叠） -->
           <div
             v-if="msg.suggestions && msg.suggestions.length > 0"
             class="mt-3 flex flex-wrap gap-2"
           >
             <button
-              v-for="suggest in msg.suggestions"
+              v-for="suggest in visibleSuggestions(msg, idx)"
               :key="suggest"
               @click="sendMessage(suggest)"
               :disabled="loading"
               class="px-3 py-1.5 bg-white text-indigo-600 hover:bg-indigo-50 rounded-full text-[11px] font-medium transition-all border border-indigo-100 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {{ suggest }}
+            </button>
+            <button
+              v-if="msg.suggestions.length > 3"
+              type="button"
+              @click="toggleSuggestions(idx)"
+              class="px-3 py-1.5 bg-gray-50 text-gray-500 hover:bg-gray-100 rounded-full text-[11px] font-medium transition-all border border-gray-200"
+            >
+              {{ expandedSuggestions.has(idx) ? '收起' : `+${msg.suggestions.length - 3} 更多` }}
             </button>
           </div>
         </div>
@@ -649,7 +917,7 @@ onMounted(() => {
         >
           <div class="min-w-0 flex-1">
             <div class="font-bold text-sm text-gray-800 truncate">{{ s.title }}</div>
-            <div class="text-[10px] text-gray-400 mt-0.5">{{ s.created_at }}</div>
+            <div class="text-[10px] text-gray-400 mt-0.5">{{ formatSessionTime(s.created_at) }}</div>
           </div>
           <button
             class="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 shrink-0"
@@ -661,15 +929,60 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Save Session Dialog -->
+    <div
+      v-if="showSaveDialog"
+      class="absolute inset-0 z-20 bg-gray-900/35 backdrop-blur-[1px] flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="save-analysis-session-title"
+      @click.self="showSaveDialog = false"
+      @keydown.esc.stop="showSaveDialog = false"
+    >
+      <form
+        class="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-200 p-5"
+        @submit.prevent="confirmSave"
+      >
+        <h4 id="save-analysis-session-title" class="text-base font-bold text-gray-900">保存分析会话</h4>
+        <p class="mt-1 text-xs text-gray-500">为这次完整分析设置一个便于历史检索的名称。</p>
+        <label for="analysis-session-title" class="block mt-4 text-sm font-medium text-gray-700">会话名称</label>
+        <input
+          id="analysis-session-title"
+          v-model="saveTitle"
+          type="text"
+          maxlength="200"
+          autocomplete="off"
+          autofocus
+          class="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          placeholder="请输入会话名称"
+        />
+        <div class="mt-1 text-right text-[11px] text-gray-400">{{ saveTitle.length }}/200</div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            class="px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100"
+            @click="showSaveDialog = false"
+          >取消</button>
+          <button
+            type="submit"
+            class="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700"
+          >保存</button>
+        </div>
+      </form>
+    </div>
+
     <!-- Input Area -->
     <div class="p-4 border-t bg-white">
       <div class="relative flex items-center">
         <textarea
+          ref="textareaRef"
           v-model="inputText"
-          @keydown.enter.prevent="loading ? stopGeneration() : sendMessage()"
-          placeholder="深入挖掘数据，例如：分析异常值原因..."
+          @keydown.enter.exact.prevent="sendMessage()"
+          @input="autoResize"
+          placeholder="深入挖掘数据，例如：分析异常值原因...（Shift+Enter 换行）"
           rows="2"
           class="w-full pl-4 pr-12 py-3 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none transition-all"
+          style="min-height: 56px; max-height: 200px;"
         ></textarea>
         <button
           v-if="loading"

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
     "lint": "eslint src --max-warnings 0"
@@ -17,6 +18,7 @@
     "@scalar/api-reference": "^1.40.9",
     "@types/markdown-it": "^14.1.2",
     "axios": "^1.13.2",
+    "docx": "^9.7.1",
     "echarts": "^5.5.0",
     "file-saver": "^2.0.5",
     "highlight.js": "^11.11.1",
