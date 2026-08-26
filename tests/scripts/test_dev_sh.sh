@@ -35,3 +35,19 @@ printf 'package-json-hash\n' > "${tmp_dir}/.package_hash"
 assert_eq "$(needs_npm_install false package-json-hash "${tmp_dir}/.package_hash")" "false"
 assert_eq "$(needs_npm_install false changed-hash "${tmp_dir}/.package_hash")" "true"
 assert_eq "$(needs_npm_install true changed-hash "${tmp_dir}/.package_hash")" "true"
+
+assert_eq "$(backend_env_dir "${tmp_dir}")" "${tmp_dir}/venv"
+mkdir -p "${tmp_dir}/.venv/bin"
+touch "${tmp_dir}/.venv/bin/python"
+chmod +x "${tmp_dir}/.venv/bin/python"
+assert_eq "$(backend_env_dir "${tmp_dir}")" "${tmp_dir}/.venv"
+
+printf 'requirements-hash\n' > "${tmp_dir}/.backend_requirements_hash"
+assert_eq "$(needs_backend_install requirements-hash "${tmp_dir}/.backend_requirements_hash")" "false"
+assert_eq "$(needs_backend_install changed-hash "${tmp_dir}/.backend_requirements_hash")" "true"
+assert_eq "$(needs_backend_install requirements-hash "${tmp_dir}/missing.hash")" "true"
+
+unset PIP_INDEX_URL
+assert_eq "$(backend_pip_index_url)" "https://pypi.tuna.tsinghua.edu.cn/simple"
+PIP_INDEX_URL="https://pypi.example.com/simple"
+assert_eq "$(backend_pip_index_url)" "https://pypi.example.com/simple"

@@ -89,6 +89,108 @@ needs_npm_install() {
     fi
 }
 
+backend_env_dir() {
+    local repo_root="${1:-${REPO_ROOT}}"
+
+    if [[ -x "${repo_root}/venv/bin/python" ]]; then
+        printf '%s\n' "${repo_root}/venv"
+    elif [[ -x "${repo_root}/.venv/bin/python" ]]; then
+        printf '%s\n' "${repo_root}/.venv"
+    else
+        printf '%s\n' "${repo_root}/venv"
+    fi
+}
+
+needs_backend_install() {
+    local current_hash="$1"
+    local hash_file="$2"
+    local saved_hash=""
+
+    if [[ -f "${hash_file}" ]]; then
+        saved_hash="$(cat "${hash_file}")"
+    fi
+
+    if [[ ! -f "${hash_file}" || "${current_hash}" != "${saved_hash}" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+backend_runtime_ready() {
+    local python_cmd="$1"
+
+    "${python_cmd}" -c 'import fastapi, uvicorn' >/dev/null 2>&1
+}
+
+backend_pip_index_url() {
+    printf '%s\n' "${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+}
+
+ensure_backend_dependencies() {
+    local repo_root="${1:-${REPO_ROOT}}"
+    local requirements_file="${repo_root}/requirements.txt"
+    local env_dir
+    local python_cmd
+    local hash_file
+    local requirements_hash
+    local pip_index_url
+
+    if [[ ! -f "${requirements_file}" ]]; then
+        echo "❌ 未找到后端依赖文件：${requirements_file}" >&2
+        return 1
+    fi
+
+    env_dir="$(backend_env_dir "${repo_root}")"
+    if [[ ! -x "${env_dir}/bin/python" ]]; then
+        echo "📦 未找到 Python 虚拟环境，正在创建：${env_dir}" >&2
+        if ! command -v python3 >/dev/null 2>&1; then
+            echo "❌ 未找到 python3，请先安装 Python 3。" >&2
+            return 1
+        fi
+        if ! python3 -m venv "${env_dir}" >&2; then
+            echo "❌ 创建 Python 虚拟环境失败。Ubuntu/Debian 可先执行：" >&2
+            echo "   apt-get update && apt-get install -y python3-venv python3-pip" >&2
+            return 1
+        fi
+    fi
+
+    python_cmd="${env_dir}/bin/python"
+    hash_file="${env_dir}/.requirements_hash"
+    requirements_hash="$(cksum "${requirements_file}")"
+    pip_index_url="$(backend_pip_index_url)"
+
+    if ! "${python_cmd}" -m pip --version >/dev/null 2>&1; then
+        echo "📦 虚拟环境缺少 pip，正在尝试补齐..." >&2
+        if ! "${python_cmd}" -m ensurepip --upgrade >/dev/null 2>&1; then
+            echo "❌ 无法为 ${python_cmd} 安装 pip，请先安装 python3-venv/python3-pip。" >&2
+            return 1
+        fi
+    fi
+
+    if [[ "$(needs_backend_install "${requirements_hash}" "${hash_file}")" == "true" ]] || ! backend_runtime_ready "${python_cmd}"; then
+        echo "📦 后端依赖未就绪，正在使用配置的 pip 镜像安装 requirements.txt..." >&2
+        if ! "${python_cmd}" -m pip install -i "${pip_index_url}" -r "${requirements_file}" >&2; then
+            echo "❌ 后端依赖安装失败，请检查服务器网络和 pip 错误信息。" >&2
+            echo "   手动重试：${python_cmd} -m pip install -i <镜像地址> -r ${requirements_file}" >&2
+            return 1
+        fi
+        if ! backend_runtime_ready "${python_cmd}"; then
+            echo "❌ 后端依赖安装完成，但 FastAPI/Uvicorn 仍无法导入。" >&2
+            return 1
+        fi
+        printf '%s\n' "${requirements_hash}" > "${hash_file}"
+        echo "✅ 后端依赖安装完成。" >&2
+    fi
+
+    if ! backend_runtime_ready "${python_cmd}"; then
+        echo "❌ 后端运行环境检查失败：${python_cmd} 无法导入 fastapi/uvicorn。" >&2
+        return 1
+    fi
+
+    printf '%s\n' "${python_cmd}"
+}
+
 main() {
     local daemon_mode
     local port
@@ -98,6 +200,7 @@ main() {
     local needs_install
     local hash_file
     local node_modules_missing
+    local backend_python_cmd
     local arg
 
     for arg in "$@"; do
@@ -156,6 +259,11 @@ main() {
     echo "✅ 前端编译完成。"
 
     echo ""
+    echo "🔧 检查后端 Python 环境..."
+    backend_python_cmd="$(ensure_backend_dependencies "${REPO_ROOT}")"
+    echo "✅ 后端运行环境已就绪：${backend_python_cmd}"
+
+    echo ""
     echo "🛑 [3/3] 检查并停止旧服务（端口 ${port}）..."
     pid="$(lsof -t -i:"${port}" || true)"
     if [[ -n "${pid}" ]]; then
@@ -165,13 +273,7 @@ main() {
         echo "ℹ️  端口 ${port} 空闲，无需停止旧服务。"
     fi
 
-    if [[ -x "venv/bin/python" ]]; then
-        python_cmd="venv/bin/python"
-    elif [[ -x ".venv/bin/python" ]]; then
-        python_cmd=".venv/bin/python"
-    else
-        python_cmd="python3"
-    fi
+    python_cmd="${backend_python_cmd}"
 
     if [[ "${daemon_mode}" == "true" ]]; then
         echo "🔥 后台启动后端服务..."

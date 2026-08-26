@@ -215,7 +215,7 @@ docker tag nanzi-api:1.0.0 nanzi-api:latest
 ./dev.sh
 ```
 
-默认前台运行开发服务；脚本会自动检查前端依赖，缺失或 `package.json` 变化时执行 `npm install`，然后编译前端并释放配置端口。端口从 `.env` 的 `API_SERVICE_PORT` 读取，默认是 `8000`。
+默认前台运行开发服务；脚本会自动准备后端 Python 虚拟环境并按需安装 `requirements.txt`，默认使用清华 PyPI 镜像（可用 `PIP_INDEX_URL` 覆盖），同时检查前端依赖，缺失或 `package.json` 变化时执行 `npm install`，然后编译前端并释放配置端口。端口从 `.env` 的 `API_SERVICE_PORT` 读取，默认是 `8000`。
 
 如需后台常驻运行：
 
