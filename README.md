@@ -215,7 +215,17 @@ docker tag nanzi-api:1.0.0 nanzi-api:latest
 ./dev.sh
 ```
 
-自动清理旧构建、编译前端、释放 8000 端口并以 `--reload` 模式后台启动后端，日志写入 `app.log`。
+默认前台运行开发服务；脚本会自动检查前端依赖，缺失或 `package.json` 变化时执行 `npm install`，然后编译前端并释放配置端口。端口从 `.env` 的 `API_SERVICE_PORT` 读取，默认是 `8000`。
+
+如需后台常驻运行：
+
+```bash
+./dev.sh -d
+# 或
+./dev.sh --daemon
+```
+
+后台模式日志写入 `app.log`，可使用 `tail -f app.log` 查看。
 
 #### 2. 传统分步启动
 
