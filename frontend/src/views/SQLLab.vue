@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { 
   CircleStackIcon, SparklesIcon, XMarkIcon, CubeIcon,
   ChevronRightIcon, ChevronUpIcon, ChevronDownIcon, QuestionMarkCircleIcon, 
-  ArrowsPointingOutIcon, ArrowsPointingInIcon, ExclamationTriangleIcon, BeakerIcon,
+  ArrowsPointingOutIcon, ArrowsPointingInIcon, ArrowPathIcon, ExclamationTriangleIcon, BeakerIcon,
   ClipboardDocumentIcon, PlayIcon, TableCellsIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -32,6 +32,8 @@ import LabTableExplorer from '../components/sqllab/LabTableExplorer.vue'
 import LabResultDataView from '../components/sqllab/LabResultDataView.vue'
 import Tooltip from '../components/common/Tooltip.vue'
 import { formatLabSqlSafe } from '../utils/formatLabSql'
+import GuideBanner from '../components/common/GuideBanner.vue'
+import PageGuideModal from '../components/common/PageGuideModal.vue'
 
 const { showToast } = useToast()
 const router = useRouter()
@@ -70,6 +72,13 @@ const publishedResourceKey = ref('')
 const showApiTestModal = ref(false)
 const publishSqlDiff = ref({ original: '', modified: '' })
 const showPublishSqlDiff = ref(false)
+const showSqlLabGuideModal = ref(false)
+const showSqlLabGuideBanner = ref(localStorage.getItem('sqllab-guide:dismissed') !== '1')
+
+const restoreSqlLabGuide = () => {
+  localStorage.removeItem('sqllab-guide:dismissed')
+  showSqlLabGuideBanner.value = true
+}
 
 const showTableDetailModal = ref(false)
 const detailTable = ref('')
@@ -142,6 +151,26 @@ const hasPerm = (code: string) => {
   const user = JSON.parse(info)
   if (user.role === 'admin') return true
   return user.permissions?.elements?.includes(code)
+}
+
+const hasMenu = (code: string) => {
+  const info = localStorage.getItem('user_info')
+  if (!info) return false
+  const user = JSON.parse(info)
+  if (user.role === 'admin') return true
+  return user.permissions?.menus?.includes(code) ?? false
+}
+
+const handleSqlLabGuideAction = (type: string) => {
+  if (type === 'datasources') {
+    router.push('/dashboard/datasources')
+  } else if (type === 'focus-editor') {
+    nextTick(() => sqlEditorRef.value?.focus())
+  } else if (type === 'run-query') {
+    runQuery()
+  } else if (type === 'open-publish') {
+    openPublishModal()
+  }
 }
 
 const hasApiMode = computed(() => hasPerm('element:lab:mode_api'))
@@ -1928,9 +1957,30 @@ onMounted(() => {
 
     <div class="flex-shrink-0 flex justify-between items-center gap-3" :class="{ 'blur-sm grayscale opacity-50': noAccessToAnyDataSource || noLabModeAccess }">
       <div class="flex items-center gap-2 min-w-0">
-        <h1 class="text-base font-bold text-gray-900 flex items-center shrink-0">
-          <BeakerIcon class="w-5 h-5 text-blue-600 mr-1.5" /> SQL 实验室
-        </h1>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <h1 class="text-base font-bold text-gray-900 flex items-center">
+            <BeakerIcon class="w-5 h-5 text-blue-600 mr-1.5" /> SQL 实验室
+          </h1>
+          <button
+            type="button"
+            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-blue-600 shadow-sm transition-colors hover:border-blue-300 hover:bg-blue-50"
+            title="SQL 实验室使用指引"
+            aria-label="打开 SQL 实验室使用指引"
+            @click="showSqlLabGuideModal = true"
+          >
+            <QuestionMarkCircleIcon class="h-4 w-4" />
+          </button>
+          <button
+            v-if="!showSqlLabGuideBanner"
+            type="button"
+            class="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50/70 px-2 py-1 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+            title="恢复顶部流程指引"
+            @click="restoreSqlLabGuide"
+          >
+            <ArrowPathIcon class="h-3.5 w-3.5" />
+            <span class="hidden sm:inline">恢复指引</span>
+          </button>
+        </div>
         <span
           v-if="labMode === 'api'"
           class="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-semibold rounded border border-blue-100 shrink-0"
@@ -1956,6 +2006,53 @@ onMounted(() => {
         </Tooltip>
       </div>
     </div>
+
+    <!-- 快速上手指引（跟随页面标题展示） -->
+    <GuideBanner
+      v-if="showSqlLabGuideBanner && !noAccessToAnyDataSource && !noLabModeAccess && !isFullscreen"
+      storage-key="sqllab-guide"
+      title="SQL 实验室"
+      description="选择数据源，编写并运行 SQL；可选 AI 分析，验证参数后发布为 API"
+      :steps="[
+        {
+          icon: '🗄️',
+          label: '选择数据源与模式',
+          description: '在编辑器顶部选择有权限的数据源，按需切换 API 调试或自助取数模式。',
+          actionText: hasMenu('menu:datasource') ? '去数据源管理' : undefined,
+          actionType: hasMenu('menu:datasource') ? 'datasources' : undefined,
+        },
+        {
+          icon: '✏️',
+          label: '编写 SQL 与参数',
+          description: '在编辑器中编写 SQL，使用格式化、表探索器和参数预设完成查询。',
+          actionText: '聚焦编辑器',
+          actionType: 'focus-editor',
+        },
+        {
+          icon: '▶️',
+          label: '运行并核验结果',
+          description: '运行当前 SQL，检查返回行数、执行耗时和异常；有参数时先完成空参数测试。',
+          actionText: '运行当前 SQL',
+          actionType: 'run-query',
+        },
+        {
+          icon: '✨',
+          label: 'AI 分析与导出',
+          description: '在结果区进行 AI 校验或深度分析，按需导出 Excel 等分析结果。',
+        },
+        {
+          icon: '🚀',
+          label: '发布为 API',
+          description: 'API 调试模式下配置动态参数并通过发布前检查，再填写名称和分组完成发布。',
+          actionText: hasPerm('element:lab:publish') ? '打开发布入口' : undefined,
+          actionType: hasPerm('element:lab:publish') ? 'open-publish' : undefined,
+        },
+      ]"
+      tip="快捷键：Ctrl+Enter 运行 | Shift+Alt+F 格式化 | Ctrl+/ 注释。发布 API 前需完成参数检查和空参数测试。"
+      @close="showSqlLabGuideBanner = false"
+      @dismiss="showSqlLabGuideBanner = false"
+      @action="handleSqlLabGuideAction"
+    />
 
     <div
       v-if="isAiEnabled && (hasPerm('element:lab:generate') || hasPerm('element:lab:analysis'))"
@@ -2712,5 +2809,20 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <PageGuideModal
+      :open="showSqlLabGuideModal"
+      title="SQL 实验室使用指引"
+      description="完成从数据源选择、SQL 编写、结果核验到 AI 分析和 API 发布的完整流程。顶部指引关闭后，也可以随时点击标题旁的问号重新查看。"
+      :steps="[
+        { icon: '🗄️', title: '选择数据源与模式', description: '先选择有权限的数据源，再按需要切换 API 调试或自助取数模式。' },
+        { icon: '✏️', title: '编写 SQL 与参数', description: '在编辑器中编写 SQL，可使用格式化、表探索器和参数预设辅助完成查询。' },
+        { icon: '▶️', title: '运行并核验结果', description: '运行查询后检查返回行数、执行耗时和异常；有参数时先完成空参数测试。' },
+        { icon: '✨', title: 'AI 分析与导出', description: '在结果区进行 AI 校验或深度分析，按需导出 Excel 等分析结果。' },
+        { icon: '🚀', title: '发布为 API', description: 'API 调试模式下配置动态参数并通过发布前检查，再填写名称和分组完成发布。' },
+      ]"
+      tip="常用快捷键：Ctrl+Enter 运行 SQL，Shift+Alt+F 格式化，Ctrl+/ 注释；发布 API 前需完成参数检查和空参数测试。"
+      @close="showSqlLabGuideModal = false"
+    />
   </div>
 </template>

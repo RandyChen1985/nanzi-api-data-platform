@@ -809,7 +809,7 @@ const filteredMenuGroups = computed(() => {
       </header>
 
       <!-- Main Scrollable Content -->
-      <main class="flex-1 overflow-y-auto bg-gray-100 p-4 sm:p-6 lg:p-8 custom-scrollbar">
+      <main class="flex-1 overflow-y-auto bg-gray-100 px-4 py-3 sm:px-6 sm:py-4 lg:px-8 custom-scrollbar">
         <router-link
           v-if="catalogBadge.count > 0 && catalogBadge.can_access_requests"
           to="/dashboard/catalog-requests"

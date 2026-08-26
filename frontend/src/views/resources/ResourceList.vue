@@ -12,11 +12,13 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ClearableInput from '@/components/common/ClearableInput.vue'
 import type { Resource, AccessLog, ResourceSortField, ResourceGroupTab } from '@/types/resource'
 import { isSystemResourceGroup, sortResourceGroups, isLockedSystemResource, displayResourceMode } from '@/types/resource'
-import { CircleStackIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
+import { ArrowPathIcon, CircleStackIcon, QuestionMarkCircleIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline'
 import { Codemirror } from 'vue-codemirror'
 import { sql } from '@codemirror/lang-sql'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { copyToClipboard } from '@/utils/clipboard'
+import GuideBanner from '@/components/common/GuideBanner.vue'
+import PageGuideModal from '@/components/common/PageGuideModal.vue'
 
 const router = useRouter()
 const isSidebarCollapsed = ref(false)
@@ -69,6 +71,13 @@ const draftPublishPreview = ref<{
 } | null>(null)
 const draftPublishLoading = ref(false)
 const draftPublishConfirming = ref(false)
+const showResourceGuideModal = ref(false)
+const showResourceGuideBanner = ref(localStorage.getItem('resources-guide:dismissed') !== '1')
+
+const restoreResourceGuide = () => {
+  localStorage.removeItem('resources-guide:dismissed')
+  showResourceGuideBanner.value = true
+}
 
 type BatchConfirmAction = 'publish' | 'enable' | 'disable' | 'delete'
 const showBatchConfirmModal = ref(false)
@@ -101,6 +110,22 @@ const hasPerm = (code: string) => {
   if (isAdmin.value) return true
   const perms = userInfo.value?.permissions as { elements?: string[] } | undefined
   return perms?.elements?.includes(code) ?? false
+}
+
+const hasMenu = (code: string) => {
+  if (isAdmin.value) return true
+  const perms = userInfo.value?.permissions as { menus?: string[] } | undefined
+  return perms?.menus?.includes(code) ?? false
+}
+
+const handleResourceGuideAction = (type: string) => {
+  if (type === 'datasources') {
+    router.push('/dashboard/datasources')
+  } else if (type === 'create') {
+    router.push('/dashboard/resources/create')
+  } else if (type === 'catalog') {
+    router.push('/dashboard/catalog')
+  }
 }
 
 const toast = ref({ show: false, message: '', type: 'info' as 'success' | 'error' | 'warning' | 'info', key: 0 })
@@ -1017,7 +1042,28 @@ onMounted(() => {
         <!-- Header -->
         <div class="flex justify-between items-start gap-4">
           <div>
-            <h1 class="text-2xl font-bold text-gray-900">{{ activeTab === 'ALL' ? '全部资源' : activeTab }}</h1>
+            <div class="flex items-center gap-2">
+              <h1 class="text-2xl font-bold text-gray-900">{{ activeTab === 'ALL' ? '全部资源' : activeTab }}</h1>
+              <button
+                type="button"
+                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-indigo-600 shadow-sm transition-colors hover:border-indigo-300 hover:bg-indigo-50"
+                title="资源 API 使用指引"
+                aria-label="打开资源 API 使用指引"
+                @click="showResourceGuideModal = true"
+              >
+                <QuestionMarkCircleIcon class="h-4 w-4" />
+              </button>
+              <button
+                v-if="!showResourceGuideBanner"
+                type="button"
+                class="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                title="恢复顶部流程指引"
+                @click="restoreResourceGuide"
+              >
+                <ArrowPathIcon class="h-3.5 w-3.5" />
+                <span class="hidden sm:inline">恢复指引</span>
+              </button>
+            </div>
             <p class="text-sm text-gray-500 mt-1">管理系统内所有的 API 资源接口</p>
           </div>
           <div class="flex gap-2 shrink-0">
@@ -1070,7 +1116,48 @@ onMounted(() => {
           </div>
         </div>
 
+        <!-- 快速上手指引（跟随页面标题展示） -->
+        <GuideBanner
+          v-if="showResourceGuideBanner"
+          storage-key="resources-guide"
+          title="API 资源"
+          description="从已有数据源和查询，到资源配置、测试、授权与 API 调用的完整链路"
+          :steps="[
+            {
+              icon: '🗄️',
+              label: '准备可用数据源',
+              description: '在数据源管理中接入并测试连接；创建资源时选择当前账号有权限的已有数据源。',
+              actionText: hasMenu('menu:datasource') ? '去数据源管理' : undefined,
+              actionType: hasMenu('menu:datasource') ? 'datasources' : undefined,
+            },
+            {
+              icon: '🧩',
+              label: '选择创建方式',
+              description: '可点击本页「+ 新建资源」直接创建 TABLE/SQL 资源，也可在 SQL 实验室查询成功后点击「发布为资源」。',
+              actionText: hasPerm('element:resource:create') ? '新建资源' : undefined,
+              actionType: hasPerm('element:resource:create') ? 'create' : undefined,
+            },
+            {
+              icon: '⚙️',
+              label: '配置并测试',
+              description: '填写 Key、名称、分组和数据源，选择表或自定义 SQL，使用「解析 SQL 获取字段」，配置返回字段、过滤参数和默认排序；保存后再用测试控制台或调试入口验证。',
+            },
+            {
+              icon: '🔑',
+              label: '授权并调用',
+              description: '可由管理员在用户或角色中分配接口资源权限，或发布到数据产品目录走申请、审批和权限同步；调用时携带 X-API-Key。',
+              actionText: '打开产品目录',
+              actionType: 'catalog',
+            },
+          ]"
+          tip="SQL 实验室「发布为资源」是快捷入口；资源页也支持「+ 新建资源」和导入已有 JSON 配置。"
+          @close="showResourceGuideBanner = false"
+          @dismiss="showResourceGuideBanner = false"
+          @action="handleResourceGuideAction"
+        />
+
         <!-- Batch bar -->
+
         <div
           v-if="selectedKeys.size > 0 && (hasPerm('element:resource:edit') || hasPerm('element:resource:delete') || canPublishToCatalog)"
           class="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-between"
@@ -1605,6 +1692,20 @@ onMounted(() => {
           <button class="mt-3 text-sm" @click="showCodeModal = false">关闭</button>
         </div>
       </div>
+
+      <PageGuideModal
+        :open="showResourceGuideModal"
+        title="资源 API 使用指引"
+        description="了解从已有数据源和查询，到资源配置、测试、授权与 API 调用的完整链路。顶部指引关闭后，也可以随时点击标题旁的问号重新查看。"
+        :steps="[
+          { icon: '🗄️', title: '准备可用数据源', description: '在数据源管理中接入并测试连接；创建资源时选择当前账号有权限的已有数据源。' },
+          { icon: '🧩', title: '选择创建方式', description: '可以直接新建 TABLE/SQL 资源，也可以在 SQL 实验室查询成功后使用「发布为资源」快捷创建。' },
+          { icon: '⚙️', title: '配置并测试', description: '填写 Key、名称、分组和数据源，使用「解析 SQL 获取字段」并配置过滤参数、默认排序；保存后使用测试控制台或调试入口验证。' },
+          { icon: '🔑', title: '授权并调用', description: '通过用户或角色分配资源权限，或发布到数据产品目录走申请审批；调用时携带 X-API-Key。' },
+        ]"
+        tip="资源列表支持按分组、状态、目录上架状态和授权范围筛选，也可以导入已有资源 JSON 配置。"
+        @close="showResourceGuideModal = false"
+      />
     </teleport>
   </div>
 </template>
