@@ -215,14 +215,18 @@ Service listens on **http://localhost:8000** (admin console, `/docs` API referen
 ./dev.sh
 ```
 
-Cleans old builds, compiles the frontend, frees port 8000, and starts the backend with `--reload` in the background. Logs go to `app.log`.
+Automatically detects/installs `uv`, prepares a Python `3.11` `.venv`, and installs `requirements.txt` when needed. It prints a non-sensitive summary of uv, Python, the virtual environment, database, and Redis configuration without printing passwords, then cleans old builds, compiles the frontend, frees the configured port (default `8000`), and starts the backend with `--reload`. Use `./dev.sh -d` for daemon mode; logs go to `app.log`. The default PyPI mirror is Tsinghua and can be overridden with `PYPI_INDEX_URL` or the compatible `PIP_INDEX_URL`.
+
+Check the daemon status with `./dev.sh status` and stop it with `./dev.sh stop`. Both commands use the same `.env` / `API_SERVICE_PORT` as startup and only recognize the Uvicorn process managed by this script; `stop` refuses to touch an unrelated process occupying the port. The existing `./stop-dev.sh` remains as a compatibility wrapper.
 
 #### 2. Step-by-Step Manual Setup
 
 ```bash
-# 1. Setup environment
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+# 1. Setup Python 3.11 environment
+uv python install 3.11
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python --default-index https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+source .venv/bin/activate
 cp env.example .env
 
 # 2. Database init (interactive, idempotent)
@@ -230,13 +234,13 @@ cp env.example .env
 # Without Python: ./db-prod/apply-sql-native.sh
 
 # 3. Create admin (if INIT-USER-ADMIN.sql was skipped)
-python3 scripts/create_admin_user.py
+.venv/bin/python scripts/create_admin_user.py
 
 # 4. Build frontend
 cd frontend && npm install && npm run build && cd ..
 
 # 5. Start backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 #### 3. Split Frontend / Backend Dev
