@@ -215,7 +215,7 @@ docker tag nanzi-api:1.0.0 nanzi-api:latest
 ./dev.sh
 ```
 
-默认前台运行开发服务；脚本会自动准备后端 Python 虚拟环境并按需安装 `requirements.txt`，默认使用清华 PyPI 镜像（可用 `PIP_INDEX_URL` 覆盖），同时检查前端依赖，缺失或 `package.json` 变化时执行 `npm install`，然后编译前端并释放配置端口。端口从 `.env` 的 `API_SERVICE_PORT` 读取，默认是 `8000`。
+默认前台运行开发服务；脚本会自动检测/安装 `uv`，准备 Python `3.11` 的 `.venv` 并按需安装 `requirements.txt`，默认使用清华 PyPI 镜像（可用 `PYPI_INDEX_URL` 或兼容的 `PIP_INDEX_URL` 覆盖）。启动时会打印 uv、Python、虚拟环境、数据库和 Redis 的非敏感配置摘要，不打印密码；同时检查前端依赖，缺失或 `package.json` 变化时执行 `npm install`，然后编译前端并释放配置端口。端口从 `.env` 的 `API_SERVICE_PORT` 读取，默认是 `8000`。
 
 如需后台常驻运行：
 
@@ -227,12 +227,28 @@ docker tag nanzi-api:1.0.0 nanzi-api:latest
 
 后台模式日志写入 `app.log`，可使用 `tail -f app.log` 查看。
 
+查看后台服务状态：
+
+```bash
+./dev.sh status
+```
+
+停止后台服务：
+
+```bash
+./dev.sh stop
+```
+
+`status` 和 `stop` 会读取与启动相同的 `.env` / `API_SERVICE_PORT`，只识别本脚本启动的 Uvicorn；如果端口被其他进程占用，`stop` 会拒绝操作。原有的 `./stop-dev.sh` 仍保留，并转调 `./dev.sh stop`。
+
 #### 2. 传统分步启动
 
 ```bash
-# 1. 准备环境
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+# 1. 准备 Python 3.11 环境
+uv python install 3.11
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python --default-index https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+source .venv/bin/activate
 cp env.example .env
 
 # 2. 数据库初始化（交互式，支持幂等重复执行）
@@ -240,13 +256,13 @@ cp env.example .env
 # 无 Python 环境时：./db-prod/apply-sql-native.sh
 
 # 3. 创建管理员（若未导入 INIT-USER-ADMIN.sql）
-python3 scripts/create_admin_user.py
+.venv/bin/python scripts/create_admin_user.py
 
 # 4. 编译前端
 cd frontend && npm install && npm run build && cd ..
 
 # 5. 启动后端
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 #### 3. 前后端分离开发

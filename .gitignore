@@ -46,6 +46,7 @@ env/
 # Logs
 *.log
 logs/
+.dev-server.pid
 
 # Testing
 .pytest_cache/
